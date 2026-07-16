@@ -1,0 +1,5 @@
+@chaos 10000
+2+2
+"dog" + "cat"
+"dog" > "cat"
+if
