@@ -2,3 +2,11 @@
 name = "rune"
 version = "0.1.0"
 description = "RUNE (Runtime Unicode Numeric Evaluation), a pure-stdlib Python esolang"
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

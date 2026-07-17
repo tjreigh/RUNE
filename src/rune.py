@@ -18,6 +18,19 @@ from pathlib import Path
 from lexer import Lexer
 from parser import Parser
 from interpreter import Interpreter
+from diagnostics import RuneError, DiagnosticKind
+
+_ERROR_LABELS = {
+    DiagnosticKind.LEX: "Lex error",
+    DiagnosticKind.PARSE: "Parse error",
+    DiagnosticKind.RUNTIME: "Runtime error",
+    DiagnosticKind.INTERNAL: "Internal error",
+}
+
+
+def format_error(err: RuneError) -> str:
+    """Render a structured RUNE diagnostic for terminal output."""
+    return f"{_ERROR_LABELS[err.diagnostic.kind]}: {err.diagnostic.format()}"
 
 
 def run_file(filepath, show_tokens=False, show_ast=False, verbose=False):
@@ -87,9 +100,12 @@ def run_code(code, source_name="<input>", show_tokens=False, show_ast=False, ver
             print(result)
 
         return 0
-    
+
+    except RuneError as e:
+        print(format_error(e), file=sys.stderr)
+        return 1
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Unexpected internal error: {e}", file=sys.stderr)
         return 1
 
 
@@ -135,8 +151,10 @@ def repl():
         except KeyboardInterrupt:
             print("\nGoodbye!")
             break
+        except RuneError as e:
+            print(format_error(e))
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Unexpected internal error: {e}")
 
 
 def main():

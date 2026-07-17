@@ -8,6 +8,7 @@ from ast_nodes import (
     IfNode,
     ProgramNode,
 )
+from diagnostics import RuneParseError
 
 class Parser:
     """
@@ -39,7 +40,10 @@ class Parser:
         if self.current_token().type == token_type:
             self.pos += 1
         else:
-            raise Exception(f"Expected {token_type}, got {self.current_token().type}")
+            raise RuneParseError(
+                f"Expected {token_type.value}, got {self.current_token().type.value}",
+                self.current_token().position,
+            )
 
     def parse(self):
         """Entry point - parse the token stream"""
@@ -55,16 +59,17 @@ class Parser:
         Parse program: statement* EOF
         """
         statements = self.block({TokenType.EOF})
+        eof_token = self.current_token()
         self.eat(TokenType.EOF)
 
         # If we have multiple statements, wrap in ProgramNode
         if len(statements) > 1:
-            return ProgramNode(statements)
+            return ProgramNode(statements, position=statements[0].position)
         elif len(statements) == 1:
             return statements[0]
         else:
             # Empty program
-            raise Exception("Empty program")
+            raise RuneParseError("Empty program", eof_token.position)
 
     def block(self, terminators):
         """Parse statements until one of the supplied terminators is reached."""
@@ -73,8 +78,11 @@ class Parser:
 
         while self.current_token().type not in terminators:
             if self.current_token().type == TokenType.EOF:
-                expected = ", ".join(token_type.value for token_type in terminators)
-                raise Exception(f"Unexpected EOF; expected one of: {expected}")
+                expected = ", ".join(sorted(t.value for t in terminators))
+                raise RuneParseError(
+                    f"Unexpected end of input; expected one of: {expected}",
+                    self.current_token().position,
+                )
 
             statements.append(self.statement())
             self.skip_newlines()
@@ -91,14 +99,16 @@ class Parser:
 
     def pragma(self):
         """Parse pragma: PRAGMA CHAOS NUMBER"""
+        start = self.current_token().position
         self.eat(TokenType.PRAGMA)
         self.eat(TokenType.CHAOS)
         threshold_token = self.current_token()
         self.eat(TokenType.NUMBER)
-        return ChaosPragmaNode(threshold_token.value)
+        return ChaosPragmaNode(threshold_token.value, position=start)
 
     def if_stmt(self):
         """Parse an if/elif/else/end conditional."""
+        start = self.current_token().position
         self.eat(TokenType.IF)
         self.eat(TokenType.LPAREN)
         condition = self.expr()
@@ -122,8 +132,8 @@ class Parser:
             else_block = self.block({TokenType.END})
 
         self.eat(TokenType.END)
-        return IfNode(condition, then_block, elif_clauses, else_block)
-    
+        return IfNode(condition, then_block, elif_clauses, else_block, position=start)
+
     def expr(self):
         """
         Parse expression: comparison
@@ -144,7 +154,7 @@ class Parser:
         while self.current_token().type in comparison_ops:
             op = self.current_token()
             self.eat(op.type)
-            node = ComparisonNode(node, op, self.arith_expr())
+            node = ComparisonNode(node, op, self.arith_expr(), position=node.position)
 
         return node
 
@@ -158,36 +168,36 @@ class Parser:
         while self.current_token().type in [TokenType.PLUS, TokenType.MINUS]:
             op = self.current_token()
             self.eat(op.type)
-            node = BinaryOpNode(node, op, self.term())
+            node = BinaryOpNode(node, op, self.term(), position=node.position)
 
         return node
-    
+
     def term(self):
         """
         Parse term: factor (MULT factor)*
         This handles multiplication (higher precedence than +/-)
         """
         node = self.factor()
-        
+
         while self.current_token().type == TokenType.MULT:
             op = self.current_token()
             self.eat(TokenType.MULT)
-            node = BinaryOpNode(node, op, self.factor())
-        
+            node = BinaryOpNode(node, op, self.factor(), position=node.position)
+
         return node
-    
+
     def factor(self):
         """
         Parse factor: NUMBER | STRING
         These are the "atomic" values in expressions
         """
         token = self.current_token()
-        
+
         if token.type == TokenType.NUMBER:
             self.eat(TokenType.NUMBER)
-            return NumberNode(token.value)
+            return NumberNode(token.value, position=token.position)
         elif token.type == TokenType.STRING:
             self.eat(TokenType.STRING)
-            return StringNode(token.value)
+            return StringNode(token.value, position=token.position)
         else:
-            raise Exception(f"Unexpected token: {token.type}")
+            raise RuneParseError(f"Unexpected token: {token.type.value}", token.position)

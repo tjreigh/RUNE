@@ -8,6 +8,7 @@ from ast_nodes import (
     IfNode,
     ProgramNode,
 )
+from diagnostics import RuneInternalError
 
 class Interpreter:
     """
@@ -36,7 +37,10 @@ class Interpreter:
         elif isinstance(node, ProgramNode):
             return self.visit_program(node)
         else:
-            raise Exception(f"Unknown node type: {type(node)}")
+            raise RuneInternalError(
+                f"Unknown node type: {type(node).__name__}",
+                getattr(node, "position", None),
+            )
     
     def visit_number(self, node):
         """A number is just its value"""
@@ -60,7 +64,9 @@ class Interpreter:
         elif node.op.type == TokenType.MULT:
             return left * right
         else:
-            raise Exception(f"Unknown operator: {node.op.type}")
+            raise RuneInternalError(
+                f"Unknown operator: {node.op.type.value}", node.op.position
+            )
 
     def visit_comparison(self, node):
         """Evaluate comparison operation - returns 1 or 0"""
@@ -82,7 +88,9 @@ class Interpreter:
         elif node.op.type == TokenType.NEQ:
             result = left != right
         else:
-            raise Exception(f"Unknown comparison operator: {node.op.type}")
+            raise RuneInternalError(
+                f"Unknown comparison operator: {node.op.type.value}", node.op.position
+            )
 
         # Return 1 for truthy, 0 for falsy
         return 1 if result else 0

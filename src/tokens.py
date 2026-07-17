@@ -1,4 +1,7 @@
 from enum import Enum
+from typing import Optional
+
+from spans import Position
 
 class TokenType(Enum):
     """All possible token types in RUNE"""
@@ -33,10 +36,11 @@ class TokenType(Enum):
 
 
 class Token:
-    """A single token with a type and value"""
-    def __init__(self, type, value):
+    """A single token with a type, value, and source position"""
+    def __init__(self, type, value, position: Optional[Position] = None):
         self.type = type
         self.value = value
-    
+        self.position = position
+
     def __repr__(self):
-        return f"Token({self.type}, {self.value})"
+        return f"Token({self.type}, {self.value}, {self.position})"
