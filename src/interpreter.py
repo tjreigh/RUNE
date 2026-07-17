@@ -9,16 +9,18 @@ from ast_nodes import (
     ProgramNode,
 )
 from diagnostics import RuneInternalError
+from runtime_state import RuntimeState, RuntimeEvent
 
 class Interpreter:
     """
     Tree-walking interpreter for RUNE
-    Visits each node in the AST and computes the result
+    Visits each node in the AST and computes the result against a
+    RuntimeState, recording structured RuntimeEvents instead of printing.
     """
 
-    def __init__(self):
-        self.chaos_threshold = 1  # Default chaos level
-        self.verbose = False
+    def __init__(self, state=None):
+        self.state = state if state is not None else RuntimeState()
+        self.events = []
 
     def visit(self, node):
         """Dispatch to appropriate visit method based on node type"""
@@ -41,15 +43,15 @@ class Interpreter:
                 f"Unknown node type: {type(node).__name__}",
                 getattr(node, "position", None),
             )
-    
+
     def visit_number(self, node):
         """A number is just its value"""
         return node.value
-    
+
     def visit_string(self, node):
         """THE RUNE MAGIC: Convert string to sum of ASCII values"""
         return sum(ord(c) for c in node.value)
-    
+
     def visit_binop(self, node):
         """Evaluate binary operation"""
         # Recursively evaluate left and right
@@ -96,10 +98,16 @@ class Interpreter:
         return 1 if result else 0
 
     def visit_chaos_pragma(self, node):
-        """Handle @chaos pragma - updates the chaos threshold"""
-        self.chaos_threshold = node.threshold
-        if self.verbose:
-            print(f"[CHAOS] Threshold set to {self.chaos_threshold}")
+        """Handle @chaos pragma - replaces the working state and records
+        a structured event instead of printing."""
+        self.state = RuntimeState(chaos_threshold=node.threshold)
+        self.events.append(
+            RuntimeEvent(
+                kind="chaos_threshold_changed",
+                data={"threshold": node.threshold},
+                position=node.position,
+            )
+        )
         # Pragmas don't produce a value
         return None
 
@@ -107,7 +115,7 @@ class Interpreter:
         """Apply the current chaos threshold to a numeric value."""
         if value <= 0:
             return False
-        return value >= self.chaos_threshold
+        return value >= self.state.chaos_threshold
 
     def _exec_block(self, statements):
         """Execute statements and flatten values produced by nested blocks."""

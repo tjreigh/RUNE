@@ -24,6 +24,13 @@ class Diagnostic:
             return self.message
         return f"line {self.position.line}, col {self.position.column}: {self.message}"
 
+    def to_dict(self):
+        return {
+            "kind": self.kind.value,
+            "message": self.message,
+            "position": self.position.to_dict() if self.position is not None else None,
+        }
+
 
 class RuneError(Exception):
     """Common base for all structured RUNE diagnostics."""

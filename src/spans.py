@@ -9,3 +9,6 @@ class Position:
 
     def __repr__(self):
         return f"{self.line}:{self.column}"
+
+    def to_dict(self):
+        return {"line": self.line, "column": self.column}

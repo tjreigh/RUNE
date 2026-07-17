@@ -6,6 +6,7 @@ from interpreter import Interpreter
 from tokens import Token, TokenType
 from ast_nodes import BinaryOpNode, ComparisonNode, NumberNode
 from diagnostics import RuneInternalError
+from runtime_state import RuntimeState
 
 
 def _run(src):
@@ -56,8 +57,7 @@ def test_comparisons_return_one_or_zero(src, expected):
 
 
 def test_chaos_truthy_boundaries():
-    interp = Interpreter()
-    interp.chaos_threshold = 5
+    interp = Interpreter(state=RuntimeState(chaos_threshold=5))
     assert interp.is_chaos_truthy(5) is True
     assert interp.is_chaos_truthy(4) is False
     assert interp.is_chaos_truthy(0) is False

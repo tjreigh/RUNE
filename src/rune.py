@@ -15,10 +15,8 @@ import sys
 import argparse
 from pathlib import Path
 
-from lexer import Lexer
-from parser import Parser
-from interpreter import Interpreter
-from diagnostics import RuneError, DiagnosticKind
+from runtime import RuntimeState, compile_source, execute, evaluate
+from diagnostics import RuneError, Diagnostic, DiagnosticKind
 
 _ERROR_LABELS = {
     DiagnosticKind.LEX: "Lex error",
@@ -28,9 +26,21 @@ _ERROR_LABELS = {
 }
 
 
+def format_diagnostic(diag: Diagnostic) -> str:
+    """Render a structured diagnostic for terminal output."""
+    return f"{_ERROR_LABELS[diag.kind]}: {diag.format()}"
+
+
 def format_error(err: RuneError) -> str:
-    """Render a structured RUNE diagnostic for terminal output."""
-    return f"{_ERROR_LABELS[err.diagnostic.kind]}: {err.diagnostic.format()}"
+    """Render a structured RUNE diagnostic raised as an exception."""
+    return format_diagnostic(err.diagnostic)
+
+
+def format_event(event) -> str:
+    """Render a runtime event for --verbose output."""
+    if event.kind == "chaos_threshold_changed":
+        return f"[CHAOS] Threshold set to {event.data['threshold']}"
+    return f"[{event.kind.upper()}] {event.data}"
 
 
 def run_file(filepath, show_tokens=False, show_ast=False, verbose=False):
@@ -56,57 +66,53 @@ def run_code(code, source_name="<input>", show_tokens=False, show_ast=False, ver
         return 0
     
     try:
-        # Lex
-        lexer = Lexer(code)
-        tokens = lexer.tokenize()
-        
-        if show_tokens:
-            print(f"\n{'='*60}")
-            print(f"TOKENS from {source_name}")
-            print(f"{'='*60}")
-            for i, token in enumerate(tokens[:-1]):  # Skip EOF
-                print(f"  {i}: {token}")
-            print()
-        
-        # Parse
-        parser = Parser(tokens)
-        ast = parser.parse()
-        
-        if show_ast:
-            print(f"\n{'='*60}")
-            print(f"AST from {source_name}")
-            print(f"{'='*60}")
-            print(f"  {ast}")
-            print()
-        
-        # Interpret
-        interpreter = Interpreter()
-        interpreter.verbose = verbose
-        
-        if verbose:
-            print(f"\n{'='*60}")
-            print(f"EXECUTION of {source_name}")
-            print(f"{'='*60}")
-        
-        result = interpreter.interpret(ast)
-
-        # Output result(s)
-        if isinstance(result, list):
-            # Multiple results from multi-line program
-            for r in result:
-                print(r)
-        else:
-            # Single result
-            print(result)
-
-        return 0
-
+        program = compile_source(code)
     except RuneError as e:
         print(format_error(e), file=sys.stderr)
         return 1
     except Exception as e:
         print(f"Unexpected internal error: {e}", file=sys.stderr)
         return 1
+
+    if show_tokens:
+        print(f"\n{'='*60}")
+        print(f"TOKENS from {source_name}")
+        print(f"{'='*60}")
+        for i, token in enumerate(program.tokens[:-1]):  # Skip EOF
+            print(f"  {i}: {token}")
+        print()
+
+    if show_ast:
+        print(f"\n{'='*60}")
+        print(f"AST from {source_name}")
+        print(f"{'='*60}")
+        print(f"  {program.ast}")
+        print()
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"EXECUTION of {source_name}")
+        print(f"{'='*60}")
+
+    try:
+        result = execute(program)
+    except Exception as e:
+        print(f"Unexpected internal error: {e}", file=sys.stderr)
+        return 1
+
+    if verbose:
+        for event in result.events:
+            print(format_event(event))
+
+    if not result.ok:
+        for diag in result.diagnostics:
+            print(format_diagnostic(diag), file=sys.stderr)
+        return 1
+
+    for value in result.values:
+        print(value)
+
+    return 0
 
 
 def repl():
@@ -115,44 +121,31 @@ def repl():
     print("Type expressions to evaluate them. Ctrl+C or Ctrl+D to exit.")
     print("=" * 60)
     
-    interpreter = Interpreter()
-    
+    state = RuntimeState()
+
     while True:
         try:
-            # Get input
             code = input("rune> ")
-            
+
             if not code.strip():
                 continue
-            
-            # Lex
-            lexer = Lexer(code)
-            tokens = lexer.tokenize()
-            
-            # Parse
-            parser = Parser(tokens)
-            ast = parser.parse()
-            
-            # Interpret
-            result = interpreter.interpret(ast)
 
-            # Output
-            if isinstance(result, list):
-                # Multiple results
-                for r in result:
-                    print(f"=> {r}")
+            result = evaluate(code, state)
+
+            if result.ok:
+                state = result.state
+                for value in result.values:
+                    print(f"=> {value}")
             else:
-                # Single result
-                print(f"=> {result}")
-            
+                for diag in result.diagnostics:
+                    print(format_diagnostic(diag))
+
         except EOFError:
             print("\nGoodbye!")
             break
         except KeyboardInterrupt:
             print("\nGoodbye!")
             break
-        except RuneError as e:
-            print(format_error(e))
         except Exception as e:
             print(f"Unexpected internal error: {e}")
 
