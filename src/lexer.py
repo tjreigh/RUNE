@@ -1,5 +1,5 @@
 from tokens import Token, TokenType
-from spans import Position
+from spans import Position, SourceSpan
 from diagnostics import RuneLexError
 
 class Lexer:
@@ -33,6 +33,10 @@ class Lexer:
             self.column += 1
         self.pos += 1
 
+    def span_from(self, start):
+        """Build a span from a saved start through the current position."""
+        return SourceSpan(start, self.current_position())
+
     def tokenize(self):
         """Main lexer loop - returns list of tokens"""
         tokens = []
@@ -47,99 +51,112 @@ class Lexer:
 
             # Newlines (statement separators)
             if self.text[self.pos] == '\n':
-                tokens.append(Token(TokenType.NEWLINE, '\n', start))
                 self.advance()
+                tokens.append(Token(TokenType.NEWLINE, '\n', self.span_from(start)))
                 continue
 
             # String literals (enclosed in double quotes)
             if self.text[self.pos] == '"':
                 string_val = self.read_string()
-                tokens.append(Token(TokenType.STRING, string_val, start))
+                tokens.append(Token(TokenType.STRING, string_val, self.span_from(start)))
 
             # Numbers (one or more digits)
             elif self.text[self.pos].isdigit():
                 num = self.read_number()
-                tokens.append(Token(TokenType.NUMBER, num, start))
+                tokens.append(Token(TokenType.NUMBER, num, self.span_from(start)))
 
             # Identifiers and keywords (like 'chaos')
             elif self.text[self.pos].isalpha():
                 ident = self.read_identifier()
                 if ident == "chaos":
-                    tokens.append(Token(TokenType.CHAOS, ident, start))
+                    tokens.append(Token(TokenType.CHAOS, ident, self.span_from(start)))
                 elif ident == "if":
-                    tokens.append(Token(TokenType.IF, ident, start))
+                    tokens.append(Token(TokenType.IF, ident, self.span_from(start)))
                 elif ident == "elif":
-                    tokens.append(Token(TokenType.ELIF, ident, start))
+                    tokens.append(Token(TokenType.ELIF, ident, self.span_from(start)))
                 elif ident == "else":
-                    tokens.append(Token(TokenType.ELSE, ident, start))
+                    tokens.append(Token(TokenType.ELSE, ident, self.span_from(start)))
                 elif ident == "end":
-                    tokens.append(Token(TokenType.END, ident, start))
+                    tokens.append(Token(TokenType.END, ident, self.span_from(start)))
                 else:
-                    raise RuneLexError(f"Unknown identifier '{ident}'", start)
+                    raise RuneLexError(
+                        f"Unknown identifier '{ident}'", self.span_from(start)
+                    )
 
             # Pragma (@)
             elif self.text[self.pos] == '@':
-                tokens.append(Token(TokenType.PRAGMA, '@', start))
                 self.advance()
+                tokens.append(Token(TokenType.PRAGMA, '@', self.span_from(start)))
 
             # Parentheses used by conditional expressions
             elif self.text[self.pos] == '(':
-                tokens.append(Token(TokenType.LPAREN, '(', start))
                 self.advance()
+                tokens.append(Token(TokenType.LPAREN, '(', self.span_from(start)))
             elif self.text[self.pos] == ')':
-                tokens.append(Token(TokenType.RPAREN, ')', start))
                 self.advance()
+                tokens.append(Token(TokenType.RPAREN, ')', self.span_from(start)))
 
             # Arithmetic operators
             elif self.text[self.pos] == '+':
-                tokens.append(Token(TokenType.PLUS, '+', start))
                 self.advance()
+                tokens.append(Token(TokenType.PLUS, '+', self.span_from(start)))
             elif self.text[self.pos] == '-':
-                tokens.append(Token(TokenType.MINUS, '-', start))
                 self.advance()
+                tokens.append(Token(TokenType.MINUS, '-', self.span_from(start)))
             elif self.text[self.pos] == '*':
-                tokens.append(Token(TokenType.MULT, '*', start))
                 self.advance()
+                tokens.append(Token(TokenType.MULT, '*', self.span_from(start)))
 
             # Comparison operators (with lookahead for multi-char)
             elif self.text[self.pos] == '<':
                 if self.peek() == '=':
-                    tokens.append(Token(TokenType.LTE, '<=', start))
                     self.advance()
                     self.advance()
+                    tokens.append(Token(TokenType.LTE, '<=', self.span_from(start)))
                 else:
-                    tokens.append(Token(TokenType.LT, '<', start))
                     self.advance()
+                    tokens.append(Token(TokenType.LT, '<', self.span_from(start)))
             elif self.text[self.pos] == '>':
                 if self.peek() == '=':
-                    tokens.append(Token(TokenType.GTE, '>=', start))
                     self.advance()
                     self.advance()
+                    tokens.append(Token(TokenType.GTE, '>=', self.span_from(start)))
                 else:
-                    tokens.append(Token(TokenType.GT, '>', start))
                     self.advance()
+                    tokens.append(Token(TokenType.GT, '>', self.span_from(start)))
             elif self.text[self.pos] == '=':
                 if self.peek() == '=':
-                    tokens.append(Token(TokenType.EQ, '==', start))
                     self.advance()
                     self.advance()
+                    tokens.append(Token(TokenType.EQ, '==', self.span_from(start)))
                 else:
+                    self.advance()
                     raise RuneLexError(
-                        "Single '=' found; use '==' for equality", start
+                        "Single '=' found; use '==' for equality",
+                        self.span_from(start),
                     )
             elif self.text[self.pos] == '!':
                 if self.peek() == '=':
-                    tokens.append(Token(TokenType.NEQ, '!=', start))
                     self.advance()
                     self.advance()
+                    tokens.append(Token(TokenType.NEQ, '!=', self.span_from(start)))
                 else:
-                    raise RuneLexError("Unexpected '!'; use '!=' for inequality", start)
+                    self.advance()
+                    raise RuneLexError(
+                        "Unexpected '!'; use '!=' for inequality",
+                        self.span_from(start),
+                    )
 
             else:
-                raise RuneLexError(f"Unknown character {self.text[self.pos]!r}", start)
+                unknown = self.text[self.pos]
+                self.advance()
+                raise RuneLexError(
+                    f"Unknown character {unknown!r}", self.span_from(start)
+                )
 
         # Add EOF marker
-        tokens.append(Token(TokenType.EOF, None, self.current_position()))
+        eof = self.current_position()
+        tokens.append(Token(TokenType.EOF, None, SourceSpan.at(eof)))
         return tokens
 
     def read_string(self):
@@ -153,7 +170,9 @@ class Lexer:
             self.advance()
 
         if self.pos >= len(self.text):
-            raise RuneLexError("Unterminated string literal", string_start)
+            raise RuneLexError(
+                "Unterminated string literal", self.span_from(string_start)
+            )
 
         string_val = self.text[start:self.pos]
         self.advance()  # Skip closing quote

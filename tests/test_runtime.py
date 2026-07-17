@@ -9,6 +9,7 @@ from runtime import (
 )
 from diagnostics import DiagnosticKind
 from ast_nodes import BinaryOpNode
+from spans import Position, SourceSpan
 
 
 def test_single_output_normalization():
@@ -55,7 +56,7 @@ def test_parse_failure_becomes_diagnostic():
 def test_failed_evaluation_preserves_input_state():
     state = RuntimeState(chaos_threshold=42)
     result = evaluate("#", state)
-    assert result.state.chaos_threshold == 42
+    assert result.state is state
 
 
 def test_input_state_is_never_mutated():
@@ -71,6 +72,14 @@ def test_runtime_events_are_structured():
     assert isinstance(event, RuntimeEvent)
     assert event.kind == "chaos_threshold_changed"
     assert event.data == {"threshold": 500}
+    assert event.span == SourceSpan(Position(1, 1), Position(1, 11))
+
+
+def test_core_evaluation_produces_no_terminal_output(capsys):
+    evaluate("@chaos 500\n1")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
 
 
 def test_successful_result_serializes_to_json():

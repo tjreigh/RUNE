@@ -1,0 +1,189 @@
+import json
+from pathlib import Path
+
+import pytest
+
+import rune
+from runtime import compile_source, execute, evaluate, RuntimeState
+from limits import ExecutionLimits
+from interpreter import Interpreter
+from diagnostics import DiagnosticKind, RuneLimitError
+from spans import Position, SourceSpan
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# "1\n2\n3" costs exactly 4 steps: 1 for the ProgramNode plus 1 per NumberNode.
+THREE_STATEMENTS = "1\n2\n3"
+
+# Peak recursion depth 3: outer if -> inner if's condition/body visit() calls.
+NESTED_IF = 'if (1)\nif (1)\n99\nend\nend'
+
+
+def test_execution_limits_rejects_invalid_values():
+    with pytest.raises(ValueError):
+        ExecutionLimits(max_steps=0)
+    with pytest.raises(ValueError):
+        ExecutionLimits(max_recursion_depth=0)
+    with pytest.raises(ValueError):
+        ExecutionLimits(max_output_values=0)
+
+
+def test_step_budget_exact_limit_succeeds():
+    program = compile_source(THREE_STATEMENTS)
+    result = execute(program, limits=ExecutionLimits(max_steps=4))
+    assert result.ok
+    assert result.values == [1, 2, 3]
+    assert result.stats.steps == 4
+
+
+def test_step_budget_one_over_fails():
+    program = compile_source(THREE_STATEMENTS)
+    result = execute(program, limits=ExecutionLimits(max_steps=3))
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert "Step budget exceeded" in result.diagnostics[0].message
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(3, 1), Position(3, 2)
+    )
+
+
+def test_recursion_depth_exact_limit_succeeds():
+    program = compile_source(NESTED_IF)
+    result = execute(program, limits=ExecutionLimits(max_recursion_depth=3))
+    assert result.ok
+    assert result.values == [99]
+    assert result.stats.peak_recursion_depth == 3
+
+
+def test_deeply_nested_conditionals_exceed_recursion_depth():
+    program = compile_source(NESTED_IF)
+    result = execute(program, limits=ExecutionLimits(max_recursion_depth=2))
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert "Recursion depth exceeded" in result.diagnostics[0].message
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(2, 5), Position(2, 6)
+    )
+
+
+def test_depth_counter_recovers_after_failure():
+    program = compile_source(NESTED_IF)
+    interpreter = Interpreter(limits=ExecutionLimits(max_recursion_depth=2))
+    with pytest.raises(RuneLimitError):
+        interpreter.interpret(program.ast)
+    assert interpreter._depth == 0
+
+
+def test_output_budget_exact_limit_succeeds():
+    program = compile_source(THREE_STATEMENTS)
+    result = execute(program, limits=ExecutionLimits(max_output_values=3))
+    assert result.ok
+    assert result.values == [1, 2, 3]
+    assert result.stats.output_values == 3
+
+
+def test_output_budget_one_over_fails():
+    program = compile_source(THREE_STATEMENTS)
+    result = execute(program, limits=ExecutionLimits(max_output_values=2))
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert "Output budget exceeded" in result.diagnostics[0].message
+
+
+def test_nested_conditional_results_count_once():
+    program = compile_source('if (1)\nif (1)\n1\n2\nend\nend')
+    result = execute(program, limits=ExecutionLimits(max_output_values=2))
+    assert result.ok
+    assert result.values == [1, 2]
+    assert result.stats.output_values == 2
+
+
+def test_pragmas_do_not_consume_output_budget():
+    program = compile_source("@chaos 1\n@chaos 2\n@chaos 3")
+    result = execute(program, limits=ExecutionLimits(max_output_values=1))
+    assert result.ok
+    assert result.values == []
+    assert result.stats.output_values == 0
+
+
+def test_output_limit_diagnostic_includes_source_span():
+    program = compile_source(THREE_STATEMENTS)
+    result = execute(program, limits=ExecutionLimits(max_output_values=2))
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(3, 1), Position(3, 2)
+    )
+
+
+def test_limit_result_serializes_to_json():
+    program = compile_source(THREE_STATEMENTS)
+    result = execute(program, limits=ExecutionLimits(max_output_values=2))
+    assert json.dumps(result.to_dict())
+
+
+def test_failed_limited_execution_rolls_back_state():
+    state = RuntimeState(chaos_threshold=1)
+    result = evaluate(
+        "@chaos 500\n1\n2\n3", state, limits=ExecutionLimits(max_output_values=2)
+    )
+    assert not result.ok
+    # The chaos pragma ran before the limit tripped, but the failure must
+    # discard that working state and return exactly what was supplied.
+    assert result.state is state
+    assert state.chaos_threshold == 1
+
+
+def test_failed_limited_execution_discards_runtime_events():
+    result = evaluate(
+        "@chaos 500\n1\n2", limits=ExecutionLimits(max_output_values=1)
+    )
+    assert not result.ok
+    assert result.events == []
+
+
+def test_failed_limited_execution_returns_no_partial_values():
+    result = evaluate("1\n2\n3", limits=ExecutionLimits(max_output_values=2))
+    assert not result.ok
+    assert result.values == []
+
+
+def test_failed_limited_execution_reports_stats_before_termination():
+    result = evaluate("1\n2\n3", limits=ExecutionLimits(max_output_values=2))
+    assert result.stats is not None
+    assert result.stats.output_values == 2
+
+
+def test_default_limits_execute_test_rune():
+    source = (REPO_ROOT / "test.rune").read_text()
+    result = evaluate(source)
+    assert result.ok
+    assert result.values == [4, 626, 1, 2, 0]
+
+
+def test_cli_exits_with_status_1_for_a_limit_error(capsys):
+    # 1001 simple statements exceeds the default max_output_values (1000)
+    # without coming close to the default step or recursion budgets.
+    source = "\n".join(["1"] * 1001)
+    rc = rune.run_code(source)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "Execution limit" in err
+
+
+def test_repl_remains_usable_after_a_limited_evaluation_fails(monkeypatch, capsys):
+    overflowing_line = "\n".join(["1"] * 1001)
+    inputs = iter([overflowing_line, "2+2"])
+
+    def fake_input(prompt=""):
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    rune.repl()
+
+    out = capsys.readouterr().out
+    assert "Execution limit" in out
+    assert "=> 4" in out
+    assert "Goodbye!" in out

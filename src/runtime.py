@@ -6,10 +6,13 @@ from parser import Parser
 from interpreter import Interpreter
 from diagnostics import RuneError
 from runtime_state import RuntimeState, RuntimeEvent
+from limits import ExecutionLimits, ExecutionStats
 
 __all__ = [
     "RuntimeState",
     "RuntimeEvent",
+    "ExecutionLimits",
+    "ExecutionStats",
     "CompiledProgram",
     "EvaluationResult",
     "compile_source",
@@ -31,6 +34,7 @@ class EvaluationResult:
     diagnostics: list
     events: list
     state: RuntimeState
+    stats: Optional[ExecutionStats] = None
 
     @property
     def ok(self):
@@ -43,6 +47,7 @@ class EvaluationResult:
             "diagnostics": [d.to_dict() for d in self.diagnostics],
             "events": [e.to_dict() for e in self.events],
             "state": self.state.to_dict(),
+            "stats": self.stats.to_dict() if self.stats is not None else None,
         }
 
 
@@ -64,12 +69,15 @@ def _normalize_values(raw) -> list:
 def execute(
     program: CompiledProgram,
     state: Optional[RuntimeState] = None,
+    limits: Optional[ExecutionLimits] = None,
 ) -> EvaluationResult:
     """Execute a compiled program against the given state (or a fresh
-    default). Never mutates the caller's state; a failed execution returns
-    the exact state it was given."""
+    default). Never mutates the caller's state; a failed execution
+    (including one that exceeds an execution limit) returns the exact
+    state it was given, no partial values, and the stats recorded before
+    termination."""
     base_state = state if state is not None else RuntimeState()
-    interpreter = Interpreter(state=base_state)
+    interpreter = Interpreter(state=base_state, limits=limits)
     try:
         raw = interpreter.interpret(program.ast)
     except RuneError as e:
@@ -78,18 +86,21 @@ def execute(
             diagnostics=[e.diagnostic],
             events=[],
             state=base_state,
+            stats=interpreter.stats,
         )
     return EvaluationResult(
         values=_normalize_values(raw),
         diagnostics=[],
         events=interpreter.events,
         state=interpreter.state,
+        stats=interpreter.stats,
     )
 
 
 def evaluate(
     source: str,
     state: Optional[RuntimeState] = None,
+    limits: Optional[ExecutionLimits] = None,
 ) -> EvaluationResult:
     """Convenience wrapper around compile_source() + execute(). Converts
     known RuneError failures (including compilation failures) into result
@@ -104,5 +115,6 @@ def evaluate(
             diagnostics=[e.diagnostic],
             events=[],
             state=base_state,
+            stats=None,
         )
-    return execute(program, state=base_state)
+    return execute(program, state=base_state, limits=limits)

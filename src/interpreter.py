@@ -8,41 +8,82 @@ from ast_nodes import (
     IfNode,
     ProgramNode,
 )
-from diagnostics import RuneInternalError
+from diagnostics import RuneInternalError, RuneLimitError
 from runtime_state import RuntimeState, RuntimeEvent
+from limits import ExecutionLimits, ExecutionStats
 
 class Interpreter:
     """
     Tree-walking interpreter for RUNE
     Visits each node in the AST and computes the result against a
-    RuntimeState, recording structured RuntimeEvents instead of printing.
+    RuntimeState, recording structured RuntimeEvents instead of printing,
+    while enforcing deterministic step/recursion/output budgets.
     """
 
-    def __init__(self, state=None):
+    def __init__(self, state=None, limits=None):
         self.state = state if state is not None else RuntimeState()
         self.events = []
+        self.limits = limits if limits is not None else ExecutionLimits()
+        self._steps = 0
+        self._depth = 0
+        self._peak_depth = 0
+        self._output_count = 0
+
+    @property
+    def stats(self):
+        """Work performed so far, valid whether or not execution succeeded."""
+        return ExecutionStats(
+            steps=self._steps,
+            peak_recursion_depth=self._peak_depth,
+            output_values=self._output_count,
+        )
+
+    def _emit(self, value, span):
+        """Count one output value against the output budget. Unlike steps
+        and recursion depth, a rejected value was never actually emitted,
+        so the counter (and reported stats) only reflect accepted values."""
+        if self._output_count + 1 > self.limits.max_output_values:
+            raise RuneLimitError("Output budget exceeded", span)
+        self._output_count += 1
+        return value
 
     def visit(self, node):
         """Dispatch to appropriate visit method based on node type"""
-        if isinstance(node, NumberNode):
-            return self.visit_number(node)
-        elif isinstance(node, StringNode):
-            return self.visit_string(node)
-        elif isinstance(node, BinaryOpNode):
-            return self.visit_binop(node)
-        elif isinstance(node, ComparisonNode):
-            return self.visit_comparison(node)
-        elif isinstance(node, ChaosPragmaNode):
-            return self.visit_chaos_pragma(node)
-        elif isinstance(node, IfNode):
-            return self.visit_if(node)
-        elif isinstance(node, ProgramNode):
-            return self.visit_program(node)
-        else:
-            raise RuneInternalError(
-                f"Unknown node type: {type(node).__name__}",
-                getattr(node, "position", None),
-            )
+        self._steps += 1
+        if self._steps > self.limits.max_steps:
+            raise RuneLimitError("Step budget exceeded", getattr(node, "span", None))
+
+        self._depth += 1
+        if self._depth > self._peak_depth:
+            self._peak_depth = self._depth
+
+        try:
+            if self._depth > self.limits.max_recursion_depth:
+                raise RuneLimitError(
+                    "Recursion depth exceeded", getattr(node, "span", None)
+                )
+
+            if isinstance(node, NumberNode):
+                return self.visit_number(node)
+            elif isinstance(node, StringNode):
+                return self.visit_string(node)
+            elif isinstance(node, BinaryOpNode):
+                return self.visit_binop(node)
+            elif isinstance(node, ComparisonNode):
+                return self.visit_comparison(node)
+            elif isinstance(node, ChaosPragmaNode):
+                return self.visit_chaos_pragma(node)
+            elif isinstance(node, IfNode):
+                return self.visit_if(node)
+            elif isinstance(node, ProgramNode):
+                return self.visit_program(node)
+            else:
+                raise RuneInternalError(
+                    f"Unknown node type: {type(node).__name__}",
+                    getattr(node, "span", None),
+                )
+        finally:
+            self._depth -= 1
 
     def visit_number(self, node):
         """A number is just its value"""
@@ -67,7 +108,7 @@ class Interpreter:
             return left * right
         else:
             raise RuneInternalError(
-                f"Unknown operator: {node.op.type.value}", node.op.position
+                f"Unknown operator: {node.op.type.value}", node.op.span
             )
 
     def visit_comparison(self, node):
@@ -91,7 +132,7 @@ class Interpreter:
             result = left != right
         else:
             raise RuneInternalError(
-                f"Unknown comparison operator: {node.op.type.value}", node.op.position
+                f"Unknown comparison operator: {node.op.type.value}", node.op.span
             )
 
         # Return 1 for truthy, 0 for falsy
@@ -105,7 +146,7 @@ class Interpreter:
             RuntimeEvent(
                 kind="chaos_threshold_changed",
                 data={"threshold": node.threshold},
-                position=node.position,
+                span=node.span,
             )
         )
         # Pragmas don't produce a value
@@ -118,7 +159,12 @@ class Interpreter:
         return value >= self.state.chaos_threshold
 
     def _exec_block(self, statements):
-        """Execute statements and flatten values produced by nested blocks."""
+        """Execute statements and flatten values produced by nested blocks.
+
+        A nested block's own values arrive here already flattened (as a
+        list), so only the non-list, non-None branch below emits a *new*
+        output value; extending a nested list must not count it again.
+        """
         results = []
         for stmt in statements:
             result = self.visit(stmt)
@@ -127,7 +173,7 @@ class Interpreter:
             if isinstance(result, list):
                 results.extend(result)
             else:
-                results.append(result)
+                results.append(self._emit(result, stmt.span))
         return results
 
     def visit_if(self, node):
@@ -148,5 +194,11 @@ class Interpreter:
         return self._exec_block(node.statements)
 
     def interpret(self, ast):
-        """Main entry point for interpretation"""
-        return self.visit(ast)
+        """Main entry point for interpretation. A bare top-level expression
+        (not wrapped in a ProgramNode) never passes through _exec_block, so
+        it is emitted here instead; a list or None result has already been
+        accounted for further down and is returned unchanged."""
+        raw = self.visit(ast)
+        if raw is None or isinstance(raw, list):
+            return raw
+        return self._emit(raw, ast.span)

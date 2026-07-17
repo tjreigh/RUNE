@@ -13,6 +13,7 @@ from ast_nodes import (
     ProgramNode,
 )
 from diagnostics import RuneParseError
+from spans import Position, SourceSpan
 
 
 def _parse(src):
@@ -24,7 +25,7 @@ def test_number_literal():
     node = _parse("42")
     assert isinstance(node, NumberNode)
     assert node.value == 42
-    assert node.position is not None
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 3))
 
 
 def test_string_literal():
@@ -42,6 +43,8 @@ def test_arithmetic_precedence():
     assert node.right.op.type == TokenType.MULT
     assert node.right.left.value == 3
     assert node.right.right.value == 4
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 6))
+    assert node.right.span == SourceSpan(Position(1, 3), Position(1, 6))
 
 
 @pytest.mark.parametrize(
@@ -65,7 +68,7 @@ def test_chaos_pragma():
     node = _parse("@chaos 500")
     assert isinstance(node, ChaosPragmaNode)
     assert node.threshold == 500
-    assert node.position is not None
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 11))
 
 
 def test_if_then_only():
@@ -74,6 +77,7 @@ def test_if_then_only():
     assert node.else_block is None
     assert node.elif_clauses == []
     assert len(node.then_block) == 1
+    assert node.span == SourceSpan(Position(1, 1), Position(3, 4))
 
 
 def test_if_then_else():
@@ -104,7 +108,7 @@ def test_multi_statement_program_wraps_in_program_node():
     node = _parse("1\n2\n3")
     assert isinstance(node, ProgramNode)
     assert len(node.statements) == 3
-    assert node.position == node.statements[0].position
+    assert node.span == SourceSpan(Position(1, 1), Position(3, 2))
 
 
 def test_single_statement_does_not_wrap():
@@ -119,15 +123,19 @@ def test_empty_program_raises_parse_error():
 
 
 def test_missing_end_raises_parse_error():
-    with pytest.raises(RuneParseError):
+    with pytest.raises(RuneParseError) as exc_info:
         _parse("if (1)\n1\n")
+    assert exc_info.value.diagnostic.span == SourceSpan.at(Position(3, 1))
 
 
 def test_unexpected_token_in_factor_raises_parse_error():
-    with pytest.raises(RuneParseError):
+    with pytest.raises(RuneParseError) as exc_info:
         _parse(")")
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(1, 1), Position(1, 2)
+    )
 
 
-def test_binop_position_equals_left_operand_position():
+def test_binop_span_covers_both_operands():
     node = _parse("2+3")
-    assert node.position == node.left.position
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 4))

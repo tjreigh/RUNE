@@ -9,6 +9,7 @@ from ast_nodes import (
     ProgramNode,
 )
 from diagnostics import RuneParseError
+from spans import SourceSpan
 
 class Parser:
     """
@@ -42,7 +43,7 @@ class Parser:
         else:
             raise RuneParseError(
                 f"Expected {token_type.value}, got {self.current_token().type.value}",
-                self.current_token().position,
+                self.current_token().span,
             )
 
     def parse(self):
@@ -64,12 +65,15 @@ class Parser:
 
         # If we have multiple statements, wrap in ProgramNode
         if len(statements) > 1:
-            return ProgramNode(statements, position=statements[0].position)
+            return ProgramNode(
+                statements,
+                span=SourceSpan.covering(statements[0].span, statements[-1].span),
+            )
         elif len(statements) == 1:
             return statements[0]
         else:
             # Empty program
-            raise RuneParseError("Empty program", eof_token.position)
+            raise RuneParseError("Empty program", eof_token.span)
 
     def block(self, terminators):
         """Parse statements until one of the supplied terminators is reached."""
@@ -81,7 +85,7 @@ class Parser:
                 expected = ", ".join(sorted(t.value for t in terminators))
                 raise RuneParseError(
                     f"Unexpected end of input; expected one of: {expected}",
-                    self.current_token().position,
+                    self.current_token().span,
                 )
 
             statements.append(self.statement())
@@ -99,16 +103,19 @@ class Parser:
 
     def pragma(self):
         """Parse pragma: PRAGMA CHAOS NUMBER"""
-        start = self.current_token().position
+        start = self.current_token().span.start
         self.eat(TokenType.PRAGMA)
         self.eat(TokenType.CHAOS)
         threshold_token = self.current_token()
         self.eat(TokenType.NUMBER)
-        return ChaosPragmaNode(threshold_token.value, position=start)
+        return ChaosPragmaNode(
+            threshold_token.value,
+            span=SourceSpan(start, threshold_token.span.end),
+        )
 
     def if_stmt(self):
         """Parse an if/elif/else/end conditional."""
-        start = self.current_token().position
+        start = self.current_token().span.start
         self.eat(TokenType.IF)
         self.eat(TokenType.LPAREN)
         condition = self.expr()
@@ -131,8 +138,15 @@ class Parser:
             self.eat(TokenType.ELSE)
             else_block = self.block({TokenType.END})
 
+        end_token = self.current_token()
         self.eat(TokenType.END)
-        return IfNode(condition, then_block, elif_clauses, else_block, position=start)
+        return IfNode(
+            condition,
+            then_block,
+            elif_clauses,
+            else_block,
+            span=SourceSpan(start, end_token.span.end),
+        )
 
     def expr(self):
         """
@@ -154,7 +168,13 @@ class Parser:
         while self.current_token().type in comparison_ops:
             op = self.current_token()
             self.eat(op.type)
-            node = ComparisonNode(node, op, self.arith_expr(), position=node.position)
+            right = self.arith_expr()
+            node = ComparisonNode(
+                node,
+                op,
+                right,
+                span=SourceSpan.covering(node.span, right.span),
+            )
 
         return node
 
@@ -168,7 +188,13 @@ class Parser:
         while self.current_token().type in [TokenType.PLUS, TokenType.MINUS]:
             op = self.current_token()
             self.eat(op.type)
-            node = BinaryOpNode(node, op, self.term(), position=node.position)
+            right = self.term()
+            node = BinaryOpNode(
+                node,
+                op,
+                right,
+                span=SourceSpan.covering(node.span, right.span),
+            )
 
         return node
 
@@ -182,7 +208,13 @@ class Parser:
         while self.current_token().type == TokenType.MULT:
             op = self.current_token()
             self.eat(TokenType.MULT)
-            node = BinaryOpNode(node, op, self.factor(), position=node.position)
+            right = self.factor()
+            node = BinaryOpNode(
+                node,
+                op,
+                right,
+                span=SourceSpan.covering(node.span, right.span),
+            )
 
         return node
 
@@ -195,9 +227,9 @@ class Parser:
 
         if token.type == TokenType.NUMBER:
             self.eat(TokenType.NUMBER)
-            return NumberNode(token.value, position=token.position)
+            return NumberNode(token.value, span=token.span)
         elif token.type == TokenType.STRING:
             self.eat(TokenType.STRING)
-            return StringNode(token.value, position=token.position)
+            return StringNode(token.value, span=token.span)
         else:
-            raise RuneParseError(f"Unexpected token: {token.type.value}", token.position)
+            raise RuneParseError(f"Unexpected token: {token.type.value}", token.span)

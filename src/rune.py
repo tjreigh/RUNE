@@ -23,6 +23,7 @@ _ERROR_LABELS = {
     DiagnosticKind.PARSE: "Parse error",
     DiagnosticKind.RUNTIME: "Runtime error",
     DiagnosticKind.INTERNAL: "Internal error",
+    DiagnosticKind.LIMIT: "Execution limit",
 }
 
 

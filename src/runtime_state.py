@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from spans import Position
+from spans import SourceSpan
 
 
 @dataclass(frozen=True)
@@ -19,11 +19,11 @@ class RuntimeEvent:
     so callers can format it (--verbose) without the interpreter printing."""
     kind: str
     data: dict
-    position: Optional[Position] = None
+    span: Optional[SourceSpan] = None
 
     def to_dict(self):
         return {
             "kind": self.kind,
             "data": self.data,
-            "position": self.position.to_dict() if self.position is not None else None,
+            "span": self.span.to_dict() if self.span is not None else None,
         }
