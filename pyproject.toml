@@ -1,0 +1,4 @@
+[project]
+name = "rune"
+version = "0.1.0"
+description = "RUNE (Runtime Unicode Numeric Evaluation), a pure-stdlib Python esolang"

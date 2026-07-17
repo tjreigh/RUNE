@@ -47,6 +47,21 @@ class ChaosPragmaNode:
         return f"ChaosPragma({self.threshold})"
 
 
+class IfNode:
+    """Represents an if/elif/else conditional."""
+    def __init__(self, condition, then_block, elif_clauses=None, else_block=None):
+        self.condition = condition
+        self.then_block = then_block
+        self.elif_clauses = elif_clauses or []
+        self.else_block = else_block
+
+    def __repr__(self):
+        return (
+            f"If({self.condition}, then={self.then_block}, "
+            f"elif={self.elif_clauses}, else={self.else_block})"
+        )
+
+
 class ProgramNode:
     """Represents a program with multiple statements"""
     def __init__(self, statements):

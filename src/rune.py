@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RUNE Programming Language Interpreter
+RUNE (Runtime Unicode Numeric Evaluation)
 A language where everything collapses to ASCII sums
 
 Usage:
@@ -142,7 +142,7 @@ def repl():
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="RUNE Programming Language Interpreter",
+        description="RUNE (Runtime Unicode Numeric Evaluation)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

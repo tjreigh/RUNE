@@ -1,13 +1,24 @@
 from tokens import TokenType
-from ast_nodes import BinaryOpNode, NumberNode, StringNode, ComparisonNode, ChaosPragmaNode, ProgramNode
+from ast_nodes import (
+    BinaryOpNode,
+    NumberNode,
+    StringNode,
+    ComparisonNode,
+    ChaosPragmaNode,
+    IfNode,
+    ProgramNode,
+)
 
 class Parser:
     """
     Parses tokens into an Abstract Syntax Tree (AST)
     Grammar:
-        program   : line* EOF
-        line      : (pragma | expr) NEWLINE*
+        program   : statement* EOF
+        statement : pragma | if_stmt | expr
         pragma    : PRAGMA CHAOS NUMBER
+        if_stmt   : IF LPAREN expr RPAREN statement*
+                    (ELIF LPAREN expr RPAREN statement*)*
+                    (ELSE statement*)? END
         expr      : comparison
         comparison: arith_expr ((LT | GT | LTE | GTE | EQ | NEQ) arith_expr)*
         arith_expr: term ((PLUS | MINUS) term)*
@@ -41,24 +52,10 @@ class Parser:
 
     def program(self):
         """
-        Parse program: line* EOF
-        Parse multiple lines (pragmas or expressions) separated by newlines
+        Parse program: statement* EOF
         """
-        statements = []
-
-        # Skip leading newlines
-        self.skip_newlines()
-
-        # Parse lines until EOF
-        while self.current_token().type != TokenType.EOF:
-            # Parse a line (pragma or expression)
-            if self.current_token().type == TokenType.PRAGMA:
-                statements.append(self.pragma())
-            else:
-                statements.append(self.expr())
-
-            # Skip trailing newlines after this line
-            self.skip_newlines()
+        statements = self.block({TokenType.EOF})
+        self.eat(TokenType.EOF)
 
         # If we have multiple statements, wrap in ProgramNode
         if len(statements) > 1:
@@ -69,12 +66,28 @@ class Parser:
             # Empty program
             raise Exception("Empty program")
 
+    def block(self, terminators):
+        """Parse statements until one of the supplied terminators is reached."""
+        statements = []
+        self.skip_newlines()
+
+        while self.current_token().type not in terminators:
+            if self.current_token().type == TokenType.EOF:
+                expected = ", ".join(token_type.value for token_type in terminators)
+                raise Exception(f"Unexpected EOF; expected one of: {expected}")
+
+            statements.append(self.statement())
+            self.skip_newlines()
+
+        return statements
+
     def statement(self):
-        """Parse a statement (currently only pragmas)"""
+        """Parse a pragma, conditional, or expression statement."""
         if self.current_token().type == TokenType.PRAGMA:
             return self.pragma()
-        else:
-            raise Exception(f"Unexpected token in statement: {self.current_token().type}")
+        elif self.current_token().type == TokenType.IF:
+            return self.if_stmt()
+        return self.expr()
 
     def pragma(self):
         """Parse pragma: PRAGMA CHAOS NUMBER"""
@@ -83,6 +96,33 @@ class Parser:
         threshold_token = self.current_token()
         self.eat(TokenType.NUMBER)
         return ChaosPragmaNode(threshold_token.value)
+
+    def if_stmt(self):
+        """Parse an if/elif/else/end conditional."""
+        self.eat(TokenType.IF)
+        self.eat(TokenType.LPAREN)
+        condition = self.expr()
+        self.eat(TokenType.RPAREN)
+
+        branch_terminators = {TokenType.ELIF, TokenType.ELSE, TokenType.END}
+        then_block = self.block(branch_terminators)
+        elif_clauses = []
+
+        while self.current_token().type == TokenType.ELIF:
+            self.eat(TokenType.ELIF)
+            self.eat(TokenType.LPAREN)
+            elif_condition = self.expr()
+            self.eat(TokenType.RPAREN)
+            elif_block = self.block(branch_terminators)
+            elif_clauses.append((elif_condition, elif_block))
+
+        else_block = None
+        if self.current_token().type == TokenType.ELSE:
+            self.eat(TokenType.ELSE)
+            else_block = self.block({TokenType.END})
+
+        self.eat(TokenType.END)
+        return IfNode(condition, then_block, elif_clauses, else_block)
     
     def expr(self):
         """

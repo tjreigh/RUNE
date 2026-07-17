@@ -25,6 +25,9 @@ class TokenType(Enum):
     PRAGMA = "PRAGMA"  # @
     CHAOS = "CHAOS"    # chaos keyword
     # Structural
+    LPAREN = "LPAREN"  # (
+    RPAREN = "RPAREN"  # )
+    END = "END"
     NEWLINE = "NEWLINE"  # \n (statement separator)
     EOF = "EOF"
 

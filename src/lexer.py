@@ -49,12 +49,26 @@ class Lexer:
                     tokens.append(Token(TokenType.CHAOS, ident))
                 elif ident == "if":
                     tokens.append(Token(TokenType.IF, ident))
+                elif ident == "elif":
+                    tokens.append(Token(TokenType.ELIF, ident))
+                elif ident == "else":
+                    tokens.append(Token(TokenType.ELSE, ident))
+                elif ident == "end":
+                    tokens.append(Token(TokenType.END, ident))
                 else:
                     print(f"Warning: Unknown identifier '{ident}' at position {self.pos}")
 
             # Pragma (@)
             elif self.text[self.pos] == '@':
                 tokens.append(Token(TokenType.PRAGMA, '@'))
+                self.pos += 1
+
+            # Parentheses used by conditional expressions
+            elif self.text[self.pos] == '(':
+                tokens.append(Token(TokenType.LPAREN, '('))
+                self.pos += 1
+            elif self.text[self.pos] == ')':
+                tokens.append(Token(TokenType.RPAREN, ')'))
                 self.pos += 1
 
             # Arithmetic operators
@@ -97,11 +111,6 @@ class Lexer:
                 else:
                     print(f"Warning: Unexpected '!' at position {self.pos}")
                     self.pos += 1
-
-            # Logical operators
-            elif self.text[self.pos] == "IF":
-                tokens.append(Token(TokenType.IF, "IF"))
-                self.pos += 2
 
             else:
                 # Unknown character - skip it (or raise error)

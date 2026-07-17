@@ -1,5 +1,13 @@
 from tokens import TokenType
-from ast_nodes import BinaryOpNode, NumberNode, StringNode, ComparisonNode, ChaosPragmaNode, ProgramNode
+from ast_nodes import (
+    BinaryOpNode,
+    NumberNode,
+    StringNode,
+    ComparisonNode,
+    ChaosPragmaNode,
+    IfNode,
+    ProgramNode,
+)
 
 class Interpreter:
     """
@@ -23,6 +31,8 @@ class Interpreter:
             return self.visit_comparison(node)
         elif isinstance(node, ChaosPragmaNode):
             return self.visit_chaos_pragma(node)
+        elif isinstance(node, IfNode):
+            return self.visit_if(node)
         elif isinstance(node, ProgramNode):
             return self.visit_program(node)
         else:
@@ -85,16 +95,41 @@ class Interpreter:
         # Pragmas don't produce a value
         return None
 
+    def is_chaos_truthy(self, value):
+        """Apply the current chaos threshold to a numeric value."""
+        if value <= 0:
+            return False
+        return value >= self.chaos_threshold
+
+    def _exec_block(self, statements):
+        """Execute statements and flatten values produced by nested blocks."""
+        results = []
+        for stmt in statements:
+            result = self.visit(stmt)
+            if result is None:
+                continue
+            if isinstance(result, list):
+                results.extend(result)
+            else:
+                results.append(result)
+        return results
+
+    def visit_if(self, node):
+        """Execute the first conditional branch that clears the chaos threshold."""
+        if self.is_chaos_truthy(self.visit(node.condition)):
+            return self._exec_block(node.then_block)
+
+        for condition, statements in node.elif_clauses:
+            if self.is_chaos_truthy(self.visit(condition)):
+                return self._exec_block(statements)
+
+        if node.else_block is not None:
+            return self._exec_block(node.else_block)
+        return []
+
     def visit_program(self, node):
         """Execute a program with multiple statements"""
-        results = []
-        for stmt in node.statements:
-            result = self.visit(stmt)
-            # Collect non-None results (pragmas return None)
-            if result is not None:
-                results.append(result)
-        # Return list of all results
-        return results
+        return self._exec_block(node.statements)
 
     def interpret(self, ast):
         """Main entry point for interpretation"""

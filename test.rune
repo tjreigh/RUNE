@@ -1,5 +1,21 @@
-@chaos 10000
 2+2
 "dog" + "cat"
-"dog" > "cat"
-if
+@chaos 1
+if ("dog" > "cat")
+1
+else
+0
+end
+if (0)
+0
+elif (2)
+2
+else
+0
+end
+@chaos 500
+if ("dog" > "cat")
+1
+else
+0
+end
