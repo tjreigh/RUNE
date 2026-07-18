@@ -1,0 +1,38 @@
+[Unit]
+Description=RUNE Web REPL
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@@SERVICE_USER@@
+Group=@@SERVICE_USER@@
+WorkingDirectory=@@APP_DIR@@
+
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn app:app --app-dir @@APP_DIR@@/web --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-server-header
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+KillMode=control-group
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0077
+
+# Tune these for the VPS if necessary. The cgroup limits include disposable
+# evaluator subprocesses, not just the Uvicorn parent.
+MemoryMax=512M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

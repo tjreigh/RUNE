@@ -1,0 +1,23 @@
+@@DOMAIN@@ {
+	encode zstd gzip
+
+	# Experimental in Caddy 2.10+. FastAPI independently enforces the same
+	# request-body boundary, so this is defense in depth rather than the only
+	# protection.
+	request_body {
+		max_size 16KiB
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	reverse_proxy 127.0.0.1:8000
+
+	log
+}
