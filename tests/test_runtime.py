@@ -35,6 +35,51 @@ def test_successful_chaos_state_update():
     assert result.state.chaos_threshold == 500
 
 
+def test_variables_persist_across_evaluations():
+    assigned = evaluate('animal = "cat"')
+    assert assigned.ok
+    assert assigned.values == []
+    assert assigned.state.variables == {"animal": 312}
+
+    looked_up = evaluate("animal + 1", assigned.state)
+    assert looked_up.ok
+    assert looked_up.values == [313]
+
+
+def test_undefined_variable_is_a_runtime_diagnostic_at_its_name():
+    result = evaluate("missing + 1")
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.RUNTIME
+    assert result.diagnostics[0].message == "Undefined variable 'missing'"
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(1, 1), Position(1, 8)
+    )
+
+
+def test_chaos_changes_preserve_variables():
+    result = evaluate("answer = 42\n@chaos 500")
+    assert result.ok
+    assert result.state.chaos_threshold == 500
+    assert result.state.variables == {"answer": 42}
+
+
+def test_failed_execution_rolls_back_variable_assignments():
+    state = RuntimeState(variables={"kept": 7})
+    result = evaluate("temporary = 9\nmissing", state)
+    assert not result.ok
+    assert result.state is state
+    assert result.state.variables == {"kept": 7}
+
+
+def test_runtime_state_detaches_input_and_returned_variable_mappings():
+    source_variables = {"answer": 42}
+    state = RuntimeState(variables=source_variables)
+    source_variables["answer"] = 0
+    detached = state.variables
+    detached["answer"] = -1
+    assert state.variables == {"answer": 42}
+
+
 def test_supplied_state_affects_later_conditionals():
     state = RuntimeState(chaos_threshold=500)
     result = evaluate('if ("dog" > "cat")\n1\nelse\n0\nend', state)
@@ -83,6 +128,12 @@ def test_runtime_events_are_structured():
     assert event.span == SourceSpan(Position(1, 1), Position(1, 11))
 
 
+def test_assignment_event_is_structured():
+    result = evaluate("answer = 42")
+    assert result.events[0].kind == "variable_assigned"
+    assert result.events[0].data == {"name": "answer", "value": 42}
+
+
 def test_core_evaluation_produces_no_terminal_output(capsys):
     evaluate("@chaos 500\n1")
     captured = capsys.readouterr()
@@ -92,6 +143,15 @@ def test_core_evaluation_produces_no_terminal_output(capsys):
 
 def test_successful_result_serializes_to_json():
     result = evaluate("2+2")
+    assert json.dumps(result.to_dict())
+
+
+def test_variable_state_serializes_to_json():
+    result = evaluate("answer = 42")
+    assert result.to_dict()["state"] == {
+        "chaos_threshold": 1,
+        "variables": {"answer": 42},
+    }
     assert json.dumps(result.to_dict())
 
 

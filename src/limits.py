@@ -8,6 +8,7 @@ class ExecutionLimits:
     max_steps: int = 10_000
     max_recursion_depth: int = 100
     max_output_values: int = 1_000
+    max_variables: int = 256
 
     def __post_init__(self):
         if self.max_steps < 1:
@@ -16,6 +17,8 @@ class ExecutionLimits:
             raise ValueError("max_recursion_depth must be at least 1")
         if self.max_output_values < 1:
             raise ValueError("max_output_values must be at least 1")
+        if self.max_variables < 1:
+            raise ValueError("max_variables must be at least 1")
 
 
 @dataclass(frozen=True)

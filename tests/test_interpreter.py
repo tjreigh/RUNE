@@ -35,6 +35,32 @@ def test_multiplication():
     assert _run("4*3") == 12
 
 
+def test_assignment_stores_value_and_produces_no_output():
+    assert _run("score = 40 + 2") is None
+
+
+def test_assignment_lookup_and_reassignment():
+    assert _run("score = 40\nscore = score + 2\nscore") == [42]
+
+
+def test_assigned_string_collapses_immediately_to_a_number():
+    assert _run('animal = "cat"\nanimal') == [sum(ord(c) for c in "cat")]
+
+
+def test_assignment_in_executed_branch_updates_state():
+    interpreter = Interpreter()
+    ast = Parser(Lexer("if (1)\nanswer = 42\nend").tokenize()).parse()
+    assert interpreter.interpret(ast) == []
+    assert interpreter.state.variables == {"answer": 42}
+
+
+def test_assignment_in_skipped_branch_does_not_update_state():
+    interpreter = Interpreter()
+    ast = Parser(Lexer("if (0)\nanswer = 42\nend").tokenize()).parse()
+    assert interpreter.interpret(ast) == []
+    assert interpreter.state.variables == {}
+
+
 @pytest.mark.parametrize(
     "src,expected",
     [

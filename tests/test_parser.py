@@ -9,6 +9,8 @@ from ast_nodes import (
     BinaryOpNode,
     ComparisonNode,
     ChaosPragmaNode,
+    VariableNode,
+    AssignmentNode,
     IfNode,
     ProgramNode,
 )
@@ -32,6 +34,25 @@ def test_string_literal():
     node = _parse('"cat"')
     assert isinstance(node, StringNode)
     assert node.value == "cat"
+
+
+def test_variable_lookup():
+    node = _parse("score")
+    assert isinstance(node, VariableNode)
+    assert node.name == "score"
+
+
+def test_assignment_parses_expression_rhs_and_full_span():
+    node = _parse("score = 2 + 3 * 4")
+    assert isinstance(node, AssignmentNode)
+    assert node.name == "score"
+    assert isinstance(node.value, BinaryOpNode)
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 18))
+
+
+def test_assignment_requires_a_value():
+    with pytest.raises(RuneParseError):
+        _parse("score =")
 
 
 def test_arithmetic_precedence():

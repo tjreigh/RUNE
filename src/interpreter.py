@@ -5,10 +5,12 @@ from ast_nodes import (
     StringNode,
     ComparisonNode,
     ChaosPragmaNode,
+    VariableNode,
+    AssignmentNode,
     IfNode,
     ProgramNode,
 )
-from diagnostics import RuneInternalError, RuneLimitError
+from diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
 from runtime_state import RuntimeState, RuntimeEvent
 from limits import ExecutionLimits, ExecutionStats
 
@@ -73,6 +75,10 @@ class Interpreter:
                 return self.visit_comparison(node)
             elif isinstance(node, ChaosPragmaNode):
                 return self.visit_chaos_pragma(node)
+            elif isinstance(node, VariableNode):
+                return self.visit_variable(node)
+            elif isinstance(node, AssignmentNode):
+                return self.visit_assignment(node)
             elif isinstance(node, IfNode):
                 return self.visit_if(node)
             elif isinstance(node, ProgramNode):
@@ -141,7 +147,7 @@ class Interpreter:
     def visit_chaos_pragma(self, node):
         """Handle @chaos pragma - replaces the working state and records
         a structured event instead of printing."""
-        self.state = RuntimeState(chaos_threshold=node.threshold)
+        self.state = self.state.with_chaos_threshold(node.threshold)
         self.events.append(
             RuntimeEvent(
                 kind="chaos_threshold_changed",
@@ -150,6 +156,33 @@ class Interpreter:
             )
         )
         # Pragmas don't produce a value
+        return None
+
+    def visit_variable(self, node):
+        """Look up an already-collapsed numeric variable value."""
+        variables = self.state.variables
+        if node.name not in variables:
+            raise RuneRuntimeError(f"Undefined variable '{node.name}'", node.span)
+        return variables[node.name]
+
+    def visit_assignment(self, node):
+        """Evaluate and commit one numeric value to the working state.
+
+        String literals collapse while evaluating the right-hand side, so the
+        environment never stores a separate string runtime type.
+        """
+        value = self.visit(node.value)
+        variables = self.state.variables
+        if node.name not in variables and len(variables) >= self.limits.max_variables:
+            raise RuneLimitError("Variable budget exceeded", node.span)
+        self.state = self.state.with_variable(node.name, value)
+        self.events.append(
+            RuntimeEvent(
+                kind="variable_assigned",
+                data={"name": node.name, "value": value},
+                span=node.span,
+            )
+        )
         return None
 
     def is_chaos_truthy(self, value):

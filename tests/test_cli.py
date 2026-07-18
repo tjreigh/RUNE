@@ -93,6 +93,13 @@ def test_run_code_verbose_formats_runtime_events(capsys):
     assert "[CHAOS] Threshold set to 500" in out
 
 
+def test_run_code_verbose_formats_variable_assignment_event(capsys):
+    rc = rune.run_code("answer = 42", verbose=True)
+
+    assert rc == 0
+    assert "[VARIABLE] answer = 42" in capsys.readouterr().out
+
+
 def _scripted_repl(monkeypatch, lines):
     inputs = iter(lines)
 
@@ -117,6 +124,13 @@ def test_repl_state_persists_after_success(monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert "=> 0" in out
+
+
+def test_repl_variables_persist_between_inputs(monkeypatch, capsys):
+    _scripted_repl(monkeypatch, ["answer = 40", "answer = answer + 2", "answer"])
+
+    out = capsys.readouterr().out
+    assert "=> 42" in out
 
 
 def test_repl_state_survives_failed_evaluation_unchanged(monkeypatch, capsys):

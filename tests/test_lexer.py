@@ -118,20 +118,21 @@ def test_multiline_string_span_includes_quotes_and_newline():
     assert token.span == SourceSpan(Position(1, 1), Position(2, 3))
 
 
-def test_unknown_identifier_raises_lex_error():
-    with pytest.raises(RuneLexError) as exc_info:
-        _tokenize("foo")
-    assert exc_info.value.diagnostic.span == SourceSpan(
-        Position(1, 1), Position(1, 4)
-    )
+def test_identifiers_support_letters_digits_and_underscores():
+    tokens = _tokenize("foo _bar rune2")
+    assert [token.type for token in tokens[:-1]] == [
+        TokenType.IDENTIFIER,
+        TokenType.IDENTIFIER,
+        TokenType.IDENTIFIER,
+    ]
+    assert [token.value for token in tokens[:-1]] == ["foo", "_bar", "rune2"]
+    assert tokens[0].span == SourceSpan(Position(1, 1), Position(1, 4))
 
 
-def test_lone_equals_raises_lex_error():
-    with pytest.raises(RuneLexError) as exc_info:
-        _tokenize("1 = 2")
-    assert exc_info.value.diagnostic.span == SourceSpan(
-        Position(1, 3), Position(1, 4)
-    )
+def test_single_equals_is_assignment_token():
+    token = _tokenize("=")[0]
+    assert token.type == TokenType.ASSIGN
+    assert token.span == SourceSpan(Position(1, 1), Position(1, 2))
 
 
 def test_lone_bang_raises_lex_error():

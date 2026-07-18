@@ -24,6 +24,27 @@ class StringNode(SpannedNode):
         return f"Str({self.value})"
 
 
+class VariableNode(SpannedNode):
+    """Represents a variable lookup: score"""
+    def __init__(self, name, span=None):
+        self.name = name
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"Variable({self.name})"
+
+
+class AssignmentNode(SpannedNode):
+    """Represents assignment of an evaluated numeric value: score = 42"""
+    def __init__(self, name, value, span=None):
+        self.name = name
+        self.value = value
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"Assign({self.name} = {self.value})"
+
+
 class BinaryOpNode(SpannedNode):
     """Represents a binary operation: left op right"""
     def __init__(self, left, op, right, span=None):

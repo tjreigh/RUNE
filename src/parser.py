@@ -5,6 +5,8 @@ from ast_nodes import (
     StringNode,
     ComparisonNode,
     ChaosPragmaNode,
+    VariableNode,
+    AssignmentNode,
     IfNode,
     ProgramNode,
 )
@@ -16,7 +18,8 @@ class Parser:
     Parses tokens into an Abstract Syntax Tree (AST)
     Grammar:
         program   : statement* EOF
-        statement : pragma | if_stmt | expr
+        statement : pragma | if_stmt | assignment | expr
+        assignment: IDENTIFIER ASSIGN expr
         pragma    : PRAGMA CHAOS NUMBER
         if_stmt   : IF LPAREN expr RPAREN statement*
                     (ELIF LPAREN expr RPAREN statement*)*
@@ -25,7 +28,7 @@ class Parser:
         comparison: arith_expr ((LT | GT | LTE | GTE | EQ | NEQ) arith_expr)*
         arith_expr: term ((PLUS | MINUS) term)*
         term      : factor (MULT factor)*
-        factor    : NUMBER | STRING
+        factor    : NUMBER | STRING | IDENTIFIER
     """
 
     def __init__(self, tokens):
@@ -35,6 +38,10 @@ class Parser:
     def current_token(self):
         """Get the current token without consuming it"""
         return self.tokens[self.pos]
+
+    def peek_token(self):
+        """Get the token after the current token without consuming it."""
+        return self.tokens[min(self.pos + 1, len(self.tokens) - 1)]
 
     def eat(self, token_type):
         """Consume a token of expected type, or raise error"""
@@ -99,7 +106,24 @@ class Parser:
             return self.pragma()
         elif self.current_token().type == TokenType.IF:
             return self.if_stmt()
+        elif (
+            self.current_token().type == TokenType.IDENTIFIER
+            and self.peek_token().type == TokenType.ASSIGN
+        ):
+            return self.assignment()
         return self.expr()
+
+    def assignment(self):
+        """Parse assignment: IDENTIFIER ASSIGN expr."""
+        name_token = self.current_token()
+        self.eat(TokenType.IDENTIFIER)
+        self.eat(TokenType.ASSIGN)
+        value = self.expr()
+        return AssignmentNode(
+            name_token.value,
+            value,
+            span=SourceSpan(name_token.span.start, value.span.end),
+        )
 
     def pragma(self):
         """Parse pragma: PRAGMA CHAOS NUMBER"""
@@ -231,5 +255,8 @@ class Parser:
         elif token.type == TokenType.STRING:
             self.eat(TokenType.STRING)
             return StringNode(token.value, span=token.span)
+        elif token.type == TokenType.IDENTIFIER:
+            self.eat(TokenType.IDENTIFIER)
+            return VariableNode(token.value, span=token.span)
         else:
             raise RuneParseError(f"Unexpected token: {token.type.value}", token.span)

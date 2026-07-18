@@ -41,6 +41,8 @@ def format_event(event) -> str:
     """Render a runtime event for --verbose output."""
     if event.kind == "chaos_threshold_changed":
         return f"[CHAOS] Threshold set to {event.data['threshold']}"
+    if event.kind == "variable_assigned":
+        return f"[VARIABLE] {event.data['name']} = {event.data['value']}"
     return f"[{event.kind.upper()}] {event.data}"
 
 

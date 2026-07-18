@@ -26,6 +26,8 @@ def test_execution_limits_rejects_invalid_values():
         ExecutionLimits(max_recursion_depth=0)
     with pytest.raises(ValueError):
         ExecutionLimits(max_output_values=0)
+    with pytest.raises(ValueError):
+        ExecutionLimits(max_variables=0)
 
 
 def test_step_budget_exact_limit_succeeds():
@@ -104,6 +106,31 @@ def test_pragmas_do_not_consume_output_budget():
     assert result.ok
     assert result.values == []
     assert result.stats.output_values == 0
+
+
+def test_variable_budget_rejects_new_name_and_rolls_back():
+    state = RuntimeState(variables={"first": 1})
+    result = evaluate(
+        "second = 2",
+        state,
+        limits=ExecutionLimits(max_variables=1),
+    )
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == "Variable budget exceeded"
+    assert result.state is state
+    assert result.state.variables == {"first": 1}
+
+
+def test_variable_budget_allows_reassignment_at_limit():
+    state = RuntimeState(variables={"answer": 1})
+    result = evaluate(
+        "answer = 42",
+        state,
+        limits=ExecutionLimits(max_variables=1),
+    )
+    assert result.ok
+    assert result.state.variables == {"answer": 42}
 
 
 def test_output_limit_diagnostic_includes_source_span():

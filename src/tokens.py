@@ -6,6 +6,7 @@ class TokenType(Enum):
     """All possible token types in RUNE"""
     STRING = "STRING"
     NUMBER = "NUMBER"
+    IDENTIFIER = "IDENTIFIER"
     # Arithmetic operators
     PLUS = "PLUS"
     MINUS = "MINUS"
@@ -17,6 +18,7 @@ class TokenType(Enum):
     GTE = "GTE"        # >=
     EQ = "EQ"          # ==
     NEQ = "NEQ"        # !=
+    ASSIGN = "ASSIGN"  # =
     # Logical operators
     IF = "IF"
     ELIF = "ELIF"

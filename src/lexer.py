@@ -68,8 +68,9 @@ class Lexer:
                 num = self.read_number(start)
                 tokens.append(Token(TokenType.NUMBER, num, self.span_from(start)))
 
-            # Identifiers and keywords (like 'chaos')
-            elif self.text[self.pos].isalpha():
+            # Identifiers and keywords. Underscores are allowed after or at
+            # the start of a name; keywords remain reserved.
+            elif self.text[self.pos].isalpha() or self.text[self.pos] == '_':
                 ident = self.read_identifier()
                 if ident == "chaos":
                     tokens.append(Token(TokenType.CHAOS, ident, self.span_from(start)))
@@ -82,8 +83,8 @@ class Lexer:
                 elif ident == "end":
                     tokens.append(Token(TokenType.END, ident, self.span_from(start)))
                 else:
-                    raise RuneLexError(
-                        f"Unknown identifier '{ident}'", self.span_from(start)
+                    tokens.append(
+                        Token(TokenType.IDENTIFIER, ident, self.span_from(start))
                     )
 
             # Pragma (@)
@@ -134,10 +135,7 @@ class Lexer:
                     tokens.append(Token(TokenType.EQ, '==', self.span_from(start)))
                 else:
                     self.advance()
-                    raise RuneLexError(
-                        "Single '=' found; use '==' for equality",
-                        self.span_from(start),
-                    )
+                    tokens.append(Token(TokenType.ASSIGN, '=', self.span_from(start)))
             elif self.text[self.pos] == '!':
                 if self.peek() == '=':
                     self.advance()
@@ -208,8 +206,11 @@ class Lexer:
         """Read an identifier (keyword) from current position"""
         start = self.pos
 
-        # Read all consecutive alphanumeric characters
-        while self.pos < len(self.text) and self.text[self.pos].isalnum():
+        # Read all name characters after the already-validated first one.
+        while (
+            self.pos < len(self.text)
+            and (self.text[self.pos].isalnum() or self.text[self.pos] == '_')
+        ):
             self.advance()
 
         return self.text[start:self.pos]
