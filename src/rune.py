@@ -4,11 +4,11 @@ RUNE (Runtime Unicode Numeric Evaluation)
 A language where everything collapses to ASCII sums
 
 Usage:
-    python rune.py <file.rune>              # Run a RUNE file
-    python rune.py <file.rune> --verbose    # Show execution details
-    python rune.py <file.rune> --show-ast   # Show Abstract Syntax Tree
-    python rune.py <file.rune> --show-tokens # Show token stream
-    python rune.py --repl                   # Interactive REPL mode
+    python3.12 rune.py <file.rune>               # Run a RUNE file
+    python3.12 rune.py <file.rune> --verbose     # Show execution details
+    python3.12 rune.py <file.rune> --show-ast    # Show Abstract Syntax Tree
+    python3.12 rune.py <file.rune> --show-tokens # Show token stream
+    python3.12 rune.py --repl                    # Interactive REPL mode
 """
 
 import sys
@@ -158,10 +158,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python rune.py program.rune              # Run a RUNE file
-    python rune.py program.rune --verbose    # Show execution details
-    python rune.py program.rune --show-ast   # Show Abstract Syntax Tree
-    python rune.py --repl                    # Interactive REPL mode
+    python3.12 rune.py program.rune              # Run a RUNE file
+    python3.12 rune.py program.rune --verbose    # Show execution details
+    python3.12 rune.py program.rune --show-ast   # Show Abstract Syntax Tree
+    python3.12 rune.py --repl                    # Interactive REPL mode
         """
     )
     

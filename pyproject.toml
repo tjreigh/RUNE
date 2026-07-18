@@ -1,12 +1,13 @@
 [project]
 name = "rune"
-version = "0.2.0"
-description = "RUNE (Runtime Unicode Numeric Evaluation), a pure-stdlib Python esolang"
-requires-python = ">=3.9"
+version = "0.3.0"
+description = "RUNE (Runtime Unicode Numeric Evaluation): a chaotic programming language"
+requires-python = ">=3.12"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4"]
+web = ["fastapi>=0.110", "uvicorn>=0.27", "httpx2>=2.0", "pydantic>=2"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "web"]
 testpaths = ["tests"]

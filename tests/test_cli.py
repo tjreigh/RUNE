@@ -49,6 +49,15 @@ def test_run_code_lex_error_reports_to_stderr(capsys):
     assert "Lex error" in err
 
 
+def test_run_code_oversized_integer_reports_lex_error(capsys):
+    rc = rune.run_code("9" * 4_301)
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "Lex error" in err
+    assert "4300-digit limit" in err
+
+
 def test_run_code_parse_error_reports_to_stderr(capsys):
     rc = rune.run_code("if (1)\n1\n")
 

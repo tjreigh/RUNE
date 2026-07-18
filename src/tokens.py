@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Optional
 
 from spans import SourceSpan
 
@@ -37,7 +36,7 @@ class TokenType(Enum):
 
 class Token:
     """A single token with a type, value, and source span."""
-    def __init__(self, type, value, span: Optional[SourceSpan] = None):
+    def __init__(self, type, value, span: SourceSpan | None = None):
         self.type = type
         self.value = value
         self.span = span

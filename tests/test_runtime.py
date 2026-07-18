@@ -47,6 +47,14 @@ def test_lex_failure_becomes_diagnostic():
     assert result.diagnostics[0].kind == DiagnosticKind.LEX
 
 
+def test_oversized_integer_literal_becomes_lex_diagnostic():
+    result = evaluate("9" * 4_301)
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LEX
+    assert "4300-digit limit" in result.diagnostics[0].message
+
+
 def test_parse_failure_becomes_diagnostic():
     result = evaluate("if (1)\n1\n")
     assert not result.ok

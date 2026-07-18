@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from lexer import Lexer
 from parser import Parser
@@ -34,7 +34,7 @@ class EvaluationResult:
     diagnostics: list
     events: list
     state: RuntimeState
-    stats: Optional[ExecutionStats] = None
+    stats: ExecutionStats | None = None
 
     @property
     def ok(self):
@@ -68,8 +68,8 @@ def _normalize_values(raw) -> list:
 
 def execute(
     program: CompiledProgram,
-    state: Optional[RuntimeState] = None,
-    limits: Optional[ExecutionLimits] = None,
+    state: RuntimeState | None = None,
+    limits: ExecutionLimits | None = None,
 ) -> EvaluationResult:
     """Execute a compiled program against the given state (or a fresh
     default). Never mutates the caller's state; a failed execution
@@ -99,8 +99,8 @@ def execute(
 
 def evaluate(
     source: str,
-    state: Optional[RuntimeState] = None,
-    limits: Optional[ExecutionLimits] = None,
+    state: RuntimeState | None = None,
+    limits: ExecutionLimits | None = None,
 ) -> EvaluationResult:
     """Convenience wrapper around compile_source() + execute(). Converts
     known RuneError failures (including compilation failures) into result

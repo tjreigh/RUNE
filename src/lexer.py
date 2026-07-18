@@ -2,6 +2,9 @@ from tokens import Token, TokenType
 from spans import Position, SourceSpan
 from diagnostics import RuneLexError
 
+MAX_INTEGER_LITERAL_DIGITS = 4_300
+
+
 class Lexer:
     """
     Tokenizes RUNE source code
@@ -62,7 +65,7 @@ class Lexer:
 
             # Numbers (one or more digits)
             elif self.text[self.pos].isdigit():
-                num = self.read_number()
+                num = self.read_number(start)
                 tokens.append(Token(TokenType.NUMBER, num, self.span_from(start)))
 
             # Identifiers and keywords (like 'chaos')
@@ -178,15 +181,28 @@ class Lexer:
         self.advance()  # Skip closing quote
         return string_val
 
-    def read_number(self):
+    def read_number(self, source_start=None):
         """Read a number from current position"""
         start = self.pos
+        source_start = source_start or self.current_position()
 
         # Read all consecutive digits
         while self.pos < len(self.text) and self.text[self.pos].isdigit():
             self.advance()
 
-        return int(self.text[start:self.pos])
+        literal = self.text[start:self.pos]
+        if len(literal) > MAX_INTEGER_LITERAL_DIGITS:
+            raise RuneLexError(
+                f"Integer literal exceeds the {MAX_INTEGER_LITERAL_DIGITS}-digit limit",
+                self.span_from(source_start),
+            )
+        try:
+            return int(literal)
+        except ValueError as exc:
+            raise RuneLexError(
+                "Invalid or unsupported integer literal",
+                self.span_from(source_start),
+            ) from exc
 
     def read_identifier(self):
         """Read an identifier (keyword) from current position"""

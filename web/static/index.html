@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RUNE Web REPL</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<h1>RUNE Web REPL</h1>
+<p class="hint">Chaos threshold persists between runs (held in this page,
+not the server) until you press Reset.</p>
+<p class="runtime-state" aria-live="polite">
+  Chaos level: <strong id="chaos-level">1</strong>
+</p>
+
+<div class="controls">
+  <select id="examples">
+    <option value="">-- load an example --</option>
+    <option value="smoke">2 + 2</option>
+    <option value="chaos">@chaos threshold demo</option>
+    <option value="full">Full walkthrough (test.rune)</option>
+  </select>
+</div>
+
+<textarea id="source" spellcheck="false">2+2</textarea>
+
+<div class="controls">
+  <button id="run">Run</button>
+  <button id="reset">Reset</button>
+</div>
+
+<div id="output"></div>
+</body>
+</html>

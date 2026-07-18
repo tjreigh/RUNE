@@ -1,6 +1,6 @@
 import pytest
 
-from lexer import Lexer
+from lexer import Lexer, MAX_INTEGER_LITERAL_DIGITS
 from tokens import TokenType
 from spans import Position, SourceSpan
 from diagnostics import RuneLexError
@@ -16,6 +16,28 @@ def test_number_token():
     assert tokens[0].value == 42
     assert tokens[0].span == SourceSpan(Position(1, 1), Position(1, 3))
     assert tokens[-1].type == TokenType.EOF
+
+
+def test_integer_literal_over_digit_limit_raises_structured_lex_error():
+    source = "9" * (MAX_INTEGER_LITERAL_DIGITS + 1)
+
+    with pytest.raises(RuneLexError) as exc_info:
+        _tokenize(source)
+
+    diagnostic = exc_info.value.diagnostic
+    assert diagnostic.message == (
+        f"Integer literal exceeds the {MAX_INTEGER_LITERAL_DIGITS}-digit limit"
+    )
+    assert diagnostic.span == SourceSpan(
+        Position(1, 1), Position(1, MAX_INTEGER_LITERAL_DIGITS + 2)
+    )
+
+
+def test_integer_literal_at_digit_limit_is_accepted():
+    token = _tokenize("9" * MAX_INTEGER_LITERAL_DIGITS)[0]
+
+    assert token.type == TokenType.NUMBER
+    assert isinstance(token.value, int)
 
 
 def test_string_token():
