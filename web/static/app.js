@@ -55,7 +55,8 @@ const resetBtn = document.getElementById("reset");
 const examplesEl = document.getElementById("examples");
 const chaosLevelEl = document.getElementById("chaos-level");
 
-let heldState = null; // Last RuntimeState returned by the stateless server.
+let sessionId = null; // Opaque capability for server-side session state.
+let heldState = null; // Last state returned, used only for the status display.
 let requestSeq = 0; // Prevent stale responses from overwriting newer state.
 let activeController = null;
 
@@ -86,16 +87,31 @@ function updateChaosDisplay() {
   chaosLevelEl.textContent = String(threshold);
 }
 
-resetBtn.addEventListener("click", () => {
+resetBtn.addEventListener("click", async () => {
   ++requestSeq;
   if (activeController !== null) {
     activeController.abort();
     activeController = null;
   }
+  const resetSessionId = sessionId;
+  sessionId = null;
   heldState = null;
   updateChaosDisplay();
   runBtn.disabled = false;
   renderOutput("");
+
+  if (resetSessionId !== null) {
+    try {
+      await fetch("/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: resetSessionId }),
+      });
+    } catch (_) {
+      // The token is forgotten locally regardless. An unreachable server
+      // will expire the now-unreachable session by TTL.
+    }
+  }
 });
 
 runBtn.addEventListener("click", async () => {
@@ -106,8 +122,8 @@ runBtn.addEventListener("click", async () => {
 
   try {
     const payload = { source: sourceEl.value };
-    if (heldState !== null) {
-      payload.state = heldState;
+    if (sessionId !== null) {
+      payload.session_id = sessionId;
     }
 
     let response;
@@ -137,11 +153,17 @@ runBtn.addEventListener("click", async () => {
       } catch (_) {
         // The status text is the best fallback for a non-JSON error body.
       }
+      if (response.status === 404) {
+        sessionId = null;
+        heldState = null;
+        updateChaosDisplay();
+      }
       renderOutput(`Request rejected (${response.status}): ${detail}`, true);
       return;
     }
 
     const result = await response.json();
+    sessionId = result.session_id;
     heldState = result.state;
     updateChaosDisplay();
     if (result.ok) {

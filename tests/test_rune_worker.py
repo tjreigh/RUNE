@@ -57,6 +57,16 @@ def test_evaluate_isolated_ok_translation():
     assert outcome.body["values"] == [4]
 
 
+def test_evaluate_isolated_restores_variable_state_in_worker():
+    outcome = evaluate_isolated(
+        "answer + 1",
+        {"chaos_threshold": 1, "variables": {"answer": 41}},
+    )
+    assert outcome.status_code == 200
+    assert outcome.body["ok"] is True
+    assert outcome.body["values"] == [42]
+
+
 def test_evaluate_isolated_timeout_translation():
     outcome = evaluate_isolated(
         "2+2", {"chaos_threshold": 1}, timeout=0.3, worker_evaluator=_hanging_evaluator

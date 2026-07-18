@@ -18,6 +18,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 import rune_worker
+from sessions import (
+    InvalidSessionStateError,
+    SessionCapacityError,
+    SessionNotFoundError,
+    SessionStateLimitError,
+    SessionStore,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -173,7 +180,10 @@ class EvaluateRateLimitMiddleware:
         self.limiter = limiter
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("path") == "/evaluate":
+        if (
+            scope["type"] == "http"
+            and scope.get("path") in {"/evaluate", "/reset"}
+        ):
             client = scope.get("client")
             client_key = client[0] if client else "unknown-client"
             if not self.limiter.allow(client_key):
@@ -181,17 +191,26 @@ class EvaluateRateLimitMiddleware:
         return await self.app(scope, receive, send)
 
 
-class StateModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    chaos_threshold: int = Field(default=1, ge=0, strict=True)  # strict: no
-        # silent str/float coercion; matches what @chaos can actually
-        # produce (a non-negative integer, no negative literals in v0.1)
-
-
 class EvaluateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # a client-sent "limits"
-    source: str                                 # field is rejected (422),
-    state: StateModel | None = None              # never silently dropped
+    model_config = ConfigDict(extra="forbid")
+    source: str
+    session_id: str | None = Field(default=None, min_length=32, max_length=128)
+
+
+class ResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session_id: str = Field(min_length=32, max_length=128)
+
+
+def _diagnostic_envelope(state: dict, kind: str, message: str, stats) -> dict:
+    return {
+        "ok": False,
+        "values": [],
+        "diagnostics": [{"kind": kind, "message": message, "span": None}],
+        "events": [],
+        "state": state,
+        "stats": stats,
+    }
 
 
 def create_app(
@@ -203,6 +222,7 @@ def create_app(
     max_request_bytes: int = 16_384,
     eval_timeout: float = 2.0,
     evaluator=rune_worker.evaluate_isolated,
+    session_store: SessionStore | None = None,
 ) -> FastAPI:
     app = FastAPI()
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -215,6 +235,7 @@ def create_app(
     app.state.rate_limiter = rate_limiter
     app.state.max_source_length = max_source_length
     app.state.eval_timeout = eval_timeout
+    app.state.session_store = session_store or SessionStore()
 
     @app.get("/")
     def index():
@@ -228,14 +249,66 @@ def create_app(
         if not app.state.concurrency_semaphore.acquire(blocking=False):
             raise HTTPException(503, "server busy, try again shortly")
         try:
-            state_dict = (
-                {"chaos_threshold": payload.state.chaos_threshold}
-                if payload.state else {"chaos_threshold": 1}
-            )
-            outcome = evaluator(payload.source, state_dict, timeout=app.state.eval_timeout)
-            return JSONResponse(status_code=outcome.status_code, content=outcome.body)
+            try:
+                if payload.session_id is None:
+                    session_id, session = app.state.session_store.create()
+                else:
+                    session_id = payload.session_id
+                    session = app.state.session_store.resolve(session_id)
+            except SessionCapacityError as exc:
+                raise HTTPException(503, "session capacity reached") from exc
+            except SessionNotFoundError as exc:
+                raise HTTPException(404, "session not found or expired") from exc
+
+            with session.execution_lock:
+                original_state = app.state.session_store.snapshot(session)
+                outcome = evaluator(
+                    payload.source,
+                    original_state,
+                    timeout=app.state.eval_timeout,
+                )
+                body = dict(outcome.body)
+                body["session_id"] = session_id
+                response_status = outcome.status_code
+
+                if outcome.status_code == 200 and body.get("ok") is True:
+                    try:
+                        committed = app.state.session_store.commit(
+                            session_id,
+                            session,
+                            body.get("state"),
+                        )
+                    except SessionStateLimitError as exc:
+                        body = _diagnostic_envelope(
+                            original_state,
+                            "limit",
+                            str(exc),
+                            body.get("stats"),
+                        )
+                        body["session_id"] = session_id
+                    except InvalidSessionStateError:
+                        body = _diagnostic_envelope(
+                            original_state,
+                            "internal",
+                            "Evaluation process returned invalid state",
+                            body.get("stats"),
+                        )
+                        body["session_id"] = session_id
+                        response_status = 500
+                    else:
+                        if not committed:
+                            raise HTTPException(409, "session was reset during evaluation")
+
+                return JSONResponse(status_code=response_status, content=body)
         finally:
             app.state.concurrency_semaphore.release()
+
+    @app.post("/reset", status_code=204)
+    def reset_endpoint(payload: ResetRequest):
+        try:
+            app.state.session_store.reset(payload.session_id)
+        except SessionNotFoundError as exc:
+            raise HTTPException(404, "session not found or expired") from exc
 
     return app
 

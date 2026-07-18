@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import app as app_module
 from app import FixedWindowRateLimiter, MaxBodySizeMiddleware, create_app
 from rune_worker import WorkerOutcome
+from sessions import SessionStore
 
 
 def test_normal_evaluation():
@@ -21,6 +22,7 @@ def test_normal_evaluation():
     assert body["ok"] is True
     assert body["values"] == [4]
     assert body["state"] == {"chaos_threshold": 1}
+    assert len(body["session_id"]) >= 32
 
 
 def test_lex_error_returns_200_with_diagnostic():
@@ -41,19 +43,21 @@ def test_parse_error_returns_200_with_diagnostic():
     assert body["diagnostics"][0]["kind"] == "parse"
 
 
-def test_state_round_trips_across_two_calls():
+def test_state_persists_by_opaque_session_id():
     client = TestClient(create_app())
     first = client.post("/evaluate", json={"source": "@chaos 500"})
     assert first.json()["state"] == {"chaos_threshold": 500}
+    session_id = first.json()["session_id"]
 
     second = client.post("/evaluate", json={
         "source": 'if ("dog" > "cat")\n1\nelse\n0\nend',
-        "state": first.json()["state"],
+        "session_id": session_id,
     })
     assert second.json()["values"] == [0]
+    assert second.json()["session_id"] == session_id
 
 
-def test_negative_chaos_threshold_is_rejected():
+def test_client_supplied_runtime_state_is_rejected():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={
         "source": "1", "state": {"chaos_threshold": -1},
@@ -61,7 +65,7 @@ def test_negative_chaos_threshold_is_rejected():
     assert response.status_code == 422
 
 
-def test_non_strict_chaos_threshold_is_rejected():
+def test_client_cannot_inject_state_using_an_old_state_shape():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={
         "source": "1", "state": {"chaos_threshold": "500"},
@@ -74,7 +78,7 @@ def test_non_strict_chaos_threshold_is_rejected():
     assert float_response.status_code == 422
 
 
-def test_unknown_state_field_is_rejected():
+def test_unknown_fields_are_rejected():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={
         "source": "1", "state": {"chaos_threshold": 1, "extra": "nope"},
@@ -272,6 +276,7 @@ def test_endpoint_maps_timeout_outcome_to_200():
     response = client.post("/evaluate", json={"source": "2+2"})
     assert response.status_code == 200
     assert response.json()["diagnostics"][0]["kind"] == "limit"
+    assert "session_id" in response.json()
 
 
 def test_endpoint_maps_crash_outcome_to_500():
@@ -279,6 +284,7 @@ def test_endpoint_maps_crash_outcome_to_500():
     response = client.post("/evaluate", json={"source": "2+2"})
     assert response.status_code == 500
     assert response.json()["diagnostics"][0]["kind"] == "internal"
+    assert "session_id" in response.json()
 
 
 def test_huge_integer_source_returns_limit_diagnostic_not_500():
@@ -329,9 +335,155 @@ def test_static_css_and_javascript_are_served_separately():
     javascript = client.get("/static/app.js")
     assert javascript.status_code == 200
     assert "javascript" in javascript.headers["content-type"]
+    assert "payload.session_id = sessionId" in javascript.text
+    assert 'fetch("/reset"' in javascript.text
+    assert "payload.state" not in javascript.text
 
 
 def test_default_state_behavior():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={"source": "2+2"})
     assert response.json()["state"] == {"chaos_threshold": 1}
+
+
+def test_variables_persist_across_web_evaluations():
+    client = TestClient(create_app())
+    assigned = client.post("/evaluate", json={"source": "answer = 40"}).json()
+    session_id = assigned["session_id"]
+
+    updated = client.post("/evaluate", json={
+        "source": "answer = answer + 2",
+        "session_id": session_id,
+    })
+    assert updated.status_code == 200
+    assert updated.json()["state"]["variables"] == {"answer": 42}
+
+    looked_up = client.post("/evaluate", json={
+        "source": "answer",
+        "session_id": session_id,
+    })
+    assert looked_up.json()["values"] == [42]
+
+
+def test_sessions_cannot_read_or_mutate_each_other():
+    client = TestClient(create_app())
+    first = client.post("/evaluate", json={"source": "value = 1"}).json()
+    second = client.post("/evaluate", json={"source": "value = 2"}).json()
+    assert first["session_id"] != second["session_id"]
+
+    first_value = client.post("/evaluate", json={
+        "source": "value",
+        "session_id": first["session_id"],
+    })
+    second_value = client.post("/evaluate", json={
+        "source": "value",
+        "session_id": second["session_id"],
+    })
+    assert first_value.json()["values"] == [1]
+    assert second_value.json()["values"] == [2]
+
+
+def test_failed_evaluation_does_not_commit_partial_variable_state():
+    client = TestClient(create_app())
+    first = client.post("/evaluate", json={"source": "value = 1"}).json()
+    session_id = first["session_id"]
+
+    failed = client.post("/evaluate", json={
+        "source": "value = 2\nmissing",
+        "session_id": session_id,
+    })
+    assert failed.json()["ok"] is False
+    assert failed.json()["state"]["variables"] == {"value": 1}
+
+    unchanged = client.post("/evaluate", json={
+        "source": "value",
+        "session_id": session_id,
+    })
+    assert unchanged.json()["values"] == [1]
+
+
+def test_unknown_or_expired_session_id_is_not_accepted():
+    client = TestClient(create_app())
+    response = client.post("/evaluate", json={
+        "source": "1",
+        "session_id": "x" * 43,
+    })
+    assert response.status_code == 404
+    assert response.json()["detail"] == "session not found or expired"
+
+
+def test_reset_deletes_server_side_session_state():
+    client = TestClient(create_app())
+    created = client.post("/evaluate", json={"source": "answer = 42"}).json()
+
+    reset = client.post("/reset", json={"session_id": created["session_id"]})
+    assert reset.status_code == 204
+
+    missing = client.post("/evaluate", json={
+        "source": "answer",
+        "session_id": created["session_id"],
+    })
+    assert missing.status_code == 404
+
+
+def test_session_capacity_is_bounded_and_reset_releases_capacity():
+    store = SessionStore(max_sessions=1)
+    client = TestClient(create_app(session_store=store))
+    first = client.post("/evaluate", json={"source": "1"}).json()
+
+    full = client.post("/evaluate", json={"source": "1"})
+    assert full.status_code == 503
+    assert full.json()["detail"] == "session capacity reached"
+
+    client.post("/reset", json={"session_id": first["session_id"]})
+    recovered = client.post("/evaluate", json={"source": "1"})
+    assert recovered.status_code == 200
+
+
+def _oversized_state_evaluator(source, state_dict, timeout=2.0):
+    return WorkerOutcome(200, {
+        "ok": True,
+        "values": [],
+        "diagnostics": [],
+        "events": [],
+        "state": {"chaos_threshold": 1, "variables": {"huge": 10 ** 200}},
+        "stats": None,
+    })
+
+
+def test_oversized_session_state_is_rejected_without_committing():
+    store = SessionStore(max_state_bytes=100)
+    client = TestClient(create_app(
+        session_store=store,
+        evaluator=_oversized_state_evaluator,
+    ))
+    response = client.post("/evaluate", json={"source": "anything"})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["ok"] is False
+    assert body["diagnostics"][0]["kind"] == "limit"
+    assert body["diagnostics"][0]["message"] == "Session state is too large"
+    session = store.resolve(body["session_id"])
+    assert store.snapshot(session) == {"chaos_threshold": 1}
+
+
+def _invalid_state_evaluator(source, state_dict, timeout=2.0):
+    return WorkerOutcome(200, {
+        "ok": True,
+        "values": [],
+        "diagnostics": [],
+        "events": [],
+        "state": {"not_runtime_state": True},
+        "stats": None,
+    })
+
+
+def test_invalid_evaluator_state_is_a_generic_500_and_is_not_committed():
+    client = TestClient(create_app(evaluator=_invalid_state_evaluator))
+    response = client.post("/evaluate", json={"source": "anything"})
+
+    assert response.status_code == 500
+    assert response.json()["diagnostics"][0]["message"] == (
+        "Evaluation process returned invalid state"
+    )

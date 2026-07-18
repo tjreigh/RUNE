@@ -78,7 +78,10 @@ def _worker_entrypoint(result_path, source, state_dict, evaluator=evaluate):
     freshly spawned 'spawn'-context child, which re-imports everything
     fresh."""
     try:
-        state = RuntimeState(chaos_threshold=state_dict.get("chaos_threshold", 1))
+        state = RuntimeState(
+            chaos_threshold=state_dict.get("chaos_threshold", 1),
+            variables=state_dict.get("variables", {}),
+        )
         result = evaluator(source, state=state, limits=ExecutionLimits())
         bounded = _bounded_dict(result.to_dict(), state_dict)
         _atomic_write_json(result_path, bounded)
