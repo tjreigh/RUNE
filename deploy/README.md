@@ -1,6 +1,6 @@
 # Deploying RUNE
 
-RUNE runs as one Uvicorn worker on `127.0.0.1:8000`, behind Caddy. These instructions assume an Ubuntu or Debian VPS with Python 3.12, Git, curl, Caddy, and systemd.
+RUNE runs as one Uvicorn worker on `127.0.0.1:8000`, behind Caddy. These instructions assume an Ubuntu or Debian VPS with Python 3.12 or newer, Git, curl, Caddy, and systemd.
 
 Before starting, point the domain at the VPS and allow inbound traffic on ports 80 and 443. Port 8000 should remain private.
 
@@ -12,7 +12,7 @@ Create a service user, clone the repository, and install the web dependencies:
 sudo useradd --system --create-home --home-dir /srv/rune \
   --shell /usr/sbin/nologin rune
 sudo -u rune git clone https://github.com/tjreigh/RUNE.git /srv/rune/app
-sudo -u rune python3.12 -m venv /srv/rune/app/.venv
+sudo -u rune python3 -m venv /srv/rune/app/.venv
 sudo -u rune /srv/rune/app/.venv/bin/python -m pip install \
   -e "/srv/rune/app[web]"
 ```

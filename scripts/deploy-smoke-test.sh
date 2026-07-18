@@ -8,11 +8,11 @@ set -eu
 #   BASE_URL=https://rune.tjreigh.mobi scripts/deploy-smoke-test.sh
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
-PYTHON_BIN="${PYTHON_BIN:-python3.12}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 BASE_URL="${BASE_URL%/}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    echo "Usage: [BASE_URL=https://rune.tjreigh.mobi] [PYTHON_BIN=python3.12] $0"
+    echo "Usage: [BASE_URL=https://rune.tjreigh.mobi] [PYTHON_BIN=python3] $0"
     exit 0
 fi
 
