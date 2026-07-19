@@ -169,12 +169,13 @@ def test_keyword_tokens():
 
 
 def test_operator_and_structural_tokens():
-    tokens = _tokenize("+-*()@")
+    tokens = _tokenize("+-*~()@")
     types = [t.type for t in tokens[:-1]]
     assert types == [
         TokenType.PLUS,
         TokenType.MINUS,
         TokenType.MULT,
+        TokenType.BIT_NOT,
         TokenType.LPAREN,
         TokenType.RPAREN,
         TokenType.PRAGMA,

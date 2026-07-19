@@ -7,11 +7,16 @@ from ast_nodes import (
     ChaosPragmaNode,
     VariableNode,
     AssignmentNode,
+    GroupNode,
+    UnaryOpNode,
     IfNode,
     ProgramNode,
 )
 from diagnostics import RuneParseError
 from spans import SourceSpan
+
+MAX_EXPRESSION_NESTING = 100
+
 
 class Parser:
     """
@@ -27,13 +32,15 @@ class Parser:
         expr      : comparison
         comparison: arith_expr ((LT | GT | LTE | GTE | EQ | NEQ) arith_expr)*
         arith_expr: term ((PLUS | MINUS) term)*
-        term      : factor (MULT factor)*
-        factor    : NUMBER | STRING | IDENTIFIER
+        term      : unary (MULT unary)*
+        unary     : (MINUS | BIT_NOT) unary | primary
+        primary   : NUMBER | STRING | IDENTIFIER | LPAREN expr RPAREN
     """
 
     def __init__(self, tokens):
         self.tokens = tokens
         self.pos = 0
+        self._expression_nesting = 0
 
     def current_token(self):
         """Get the current token without consuming it"""
@@ -56,6 +63,19 @@ class Parser:
     def parse(self):
         """Entry point - parse the token stream"""
         return self.program()
+
+    def parse_nested(self, parse_fn, token):
+        """Run one recursive expression parse within a safe depth bound."""
+        self._expression_nesting += 1
+        try:
+            if self._expression_nesting > MAX_EXPRESSION_NESTING:
+                raise RuneParseError(
+                    f"Expression nesting exceeds the {MAX_EXPRESSION_NESTING}-level limit",
+                    token.span,
+                )
+            return parse_fn()
+        finally:
+            self._expression_nesting -= 1
 
     def skip_newlines(self):
         """Skip any consecutive newline tokens"""
@@ -224,15 +244,15 @@ class Parser:
 
     def term(self):
         """
-        Parse term: factor (MULT factor)*
+        Parse term: unary (MULT unary)*
         This handles multiplication (higher precedence than +/-)
         """
-        node = self.factor()
+        node = self.unary()
 
         while self.current_token().type == TokenType.MULT:
             op = self.current_token()
             self.eat(TokenType.MULT)
-            right = self.factor()
+            right = self.unary()
             node = BinaryOpNode(
                 node,
                 op,
@@ -242,10 +262,22 @@ class Parser:
 
         return node
 
-    def factor(self):
+    def unary(self):
+        """Parse a right-nested prefix unary expression."""
+        token = self.current_token()
+        if token.type in [TokenType.MINUS, TokenType.BIT_NOT]:
+            self.eat(token.type)
+            operand = self.parse_nested(self.unary, token)
+            return UnaryOpNode(
+                token,
+                operand,
+                span=SourceSpan(token.span.start, operand.span.end),
+            )
+        return self.primary()
+
+    def primary(self):
         """
-        Parse factor: NUMBER | STRING
-        These are the "atomic" values in expressions
+        Parse primary: NUMBER | STRING | IDENTIFIER | LPAREN expr RPAREN
         """
         token = self.current_token()
 
@@ -258,5 +290,14 @@ class Parser:
         elif token.type == TokenType.IDENTIFIER:
             self.eat(TokenType.IDENTIFIER)
             return VariableNode(token.value, span=token.span)
+        elif token.type == TokenType.LPAREN:
+            self.eat(TokenType.LPAREN)
+            expression = self.parse_nested(self.expr, token)
+            closing = self.current_token()
+            self.eat(TokenType.RPAREN)
+            return GroupNode(
+                expression,
+                span=SourceSpan(token.span.start, closing.span.end),
+            )
         else:
             raise RuneParseError(f"Unexpected token: {token.type.value}", token.span)

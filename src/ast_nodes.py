@@ -45,6 +45,27 @@ class AssignmentNode(SpannedNode):
         return f"Assign({self.name} = {self.value})"
 
 
+class GroupNode(SpannedNode):
+    """Represents an explicitly parenthesized expression: (2 + 3)"""
+    def __init__(self, expression, span=None):
+        self.expression = expression
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"Group({self.expression})"
+
+
+class UnaryOpNode(SpannedNode):
+    """Represents a prefix unary operation: -value or ~value"""
+    def __init__(self, op, operand, span=None):
+        self.op = op
+        self.operand = operand
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"UnaryOp({self.op.value} {self.operand})"
+
+
 class BinaryOpNode(SpannedNode):
     """Represents a binary operation: left op right"""
     def __init__(self, left, op, right, span=None):

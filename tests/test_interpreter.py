@@ -4,7 +4,7 @@ from lexer import Lexer
 from parser import Parser
 from interpreter import Interpreter
 from tokens import Token, TokenType
-from ast_nodes import BinaryOpNode, ComparisonNode, NumberNode
+from ast_nodes import BinaryOpNode, ComparisonNode, NumberNode, UnaryOpNode
 from diagnostics import RuneInternalError
 from runtime_state import RuntimeState
 
@@ -33,6 +33,35 @@ def test_subtraction():
 
 def test_multiplication():
     assert _run("4*3") == 12
+
+
+def test_parentheses_override_precedence():
+    assert _run("(2+3)*4") == 20
+
+
+def test_nested_parentheses_preserve_value():
+    assert _run("(((42)))") == 42
+
+
+def test_unary_negation():
+    assert _run("-42") == -42
+
+
+def test_bitwise_complement_uses_infinite_twos_complement_semantics():
+    assert _run("~0b0101") == -6
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [("--5", 5), ("-~5", 6), ("~-5", 4), ("~~5", 5)],
+)
+def test_nested_unary_operators(source, expected):
+    assert _run(source) == expected
+
+
+def test_unary_operators_apply_after_string_collapse():
+    assert _run('-"A"') == -65
+    assert _run('~"A"') == -66
 
 
 def test_assignment_stores_value_and_produces_no_output():
@@ -128,6 +157,13 @@ def test_unknown_binop_operator_raises_internal_error():
     node = BinaryOpNode(NumberNode(1), bad_op, NumberNode(2))
     with pytest.raises(RuneInternalError):
         Interpreter().visit_binop(node)
+
+
+def test_unknown_unary_operator_raises_internal_error():
+    bad_op = Token(TokenType.PLUS, "+")
+    node = UnaryOpNode(bad_op, NumberNode(1))
+    with pytest.raises(RuneInternalError):
+        Interpreter().visit_unary(node)
 
 
 def test_unknown_comparison_operator_raises_internal_error():

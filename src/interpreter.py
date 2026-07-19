@@ -7,6 +7,8 @@ from ast_nodes import (
     ChaosPragmaNode,
     VariableNode,
     AssignmentNode,
+    GroupNode,
+    UnaryOpNode,
     IfNode,
     ProgramNode,
 )
@@ -79,6 +81,10 @@ class Interpreter:
                 return self.visit_variable(node)
             elif isinstance(node, AssignmentNode):
                 return self.visit_assignment(node)
+            elif isinstance(node, GroupNode):
+                return self.visit_group(node)
+            elif isinstance(node, UnaryOpNode):
+                return self.visit_unary(node)
             elif isinstance(node, IfNode):
                 return self.visit_if(node)
             elif isinstance(node, ProgramNode):
@@ -98,6 +104,21 @@ class Interpreter:
     def visit_string(self, node):
         """THE RUNE MAGIC: Convert string to sum of ASCII values"""
         return sum(ord(c) for c in node.value)
+
+    def visit_group(self, node):
+        """Evaluate a parenthesized expression without changing its value."""
+        return self.visit(node.expression)
+
+    def visit_unary(self, node):
+        """Evaluate numeric negation or infinite-width bitwise complement."""
+        operand = self.visit(node.operand)
+        if node.op.type == TokenType.MINUS:
+            return -operand
+        elif node.op.type == TokenType.BIT_NOT:
+            return ~operand
+        raise RuneInternalError(
+            f"Unknown unary operator: {node.op.type.value}", node.op.span
+        )
 
     def visit_binop(self, node):
         """Evaluate binary operation"""

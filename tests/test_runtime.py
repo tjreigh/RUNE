@@ -42,6 +42,31 @@ def test_malformed_prefixed_integer_becomes_lex_diagnostic():
     )
 
 
+def test_grouping_and_unary_operations_work_in_assignment_and_condition():
+    result = evaluate(
+        "answer = -(40 + 2)\n"
+        "if ((~answer))\n"
+        "answer\n"
+        "else\n"
+        "0\n"
+        "end"
+    )
+
+    assert result.ok
+    assert result.values == [-42]
+    assert result.state.variables == {"answer": -42}
+
+
+def test_grouping_preserves_inner_undefined_variable_span():
+    result = evaluate("(missing)")
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.RUNTIME
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(1, 2), Position(1, 9)
+    )
+
+
 def test_pragma_only_produces_no_output():
     result = evaluate("@chaos 500")
     assert result.ok

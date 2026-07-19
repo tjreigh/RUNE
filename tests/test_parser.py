@@ -1,7 +1,7 @@
 import pytest
 
 from lexer import Lexer
-from parser import Parser
+from parser import Parser, MAX_EXPRESSION_NESTING
 from tokens import TokenType
 from ast_nodes import (
     NumberNode,
@@ -11,6 +11,8 @@ from ast_nodes import (
     ChaosPragmaNode,
     VariableNode,
     AssignmentNode,
+    GroupNode,
+    UnaryOpNode,
     IfNode,
     ProgramNode,
 )
@@ -66,6 +68,103 @@ def test_arithmetic_precedence():
     assert node.right.right.value == 4
     assert node.span == SourceSpan(Position(1, 1), Position(1, 6))
     assert node.right.span == SourceSpan(Position(1, 3), Position(1, 6))
+
+
+def test_parentheses_override_arithmetic_precedence():
+    node = _parse("(2+3)*4")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.MULT
+    assert isinstance(node.left, GroupNode)
+    assert isinstance(node.left.expression, BinaryOpNode)
+    assert node.left.expression.op.type == TokenType.PLUS
+    assert node.left.span == SourceSpan(Position(1, 1), Position(1, 6))
+    assert node.left.expression.span == SourceSpan(
+        Position(1, 2), Position(1, 5)
+    )
+
+
+def test_nested_parentheses_preserve_each_group_span():
+    node = _parse("((42))")
+
+    assert isinstance(node, GroupNode)
+    assert isinstance(node.expression, GroupNode)
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 7))
+    assert node.expression.span == SourceSpan(Position(1, 2), Position(1, 6))
+    assert node.expression.expression.span == SourceSpan(
+        Position(1, 3), Position(1, 5)
+    )
+
+
+@pytest.mark.parametrize(
+    "source,operator",
+    [("-42", TokenType.MINUS), ("~42", TokenType.BIT_NOT)],
+)
+def test_unary_operator_node_and_span(source, operator):
+    node = _parse(source)
+
+    assert isinstance(node, UnaryOpNode)
+    assert node.op.type == operator
+    assert isinstance(node.operand, NumberNode)
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 4))
+
+
+def test_unary_operators_nest_from_right_to_left():
+    node = _parse("-~5")
+
+    assert isinstance(node, UnaryOpNode)
+    assert node.op.type == TokenType.MINUS
+    assert isinstance(node.operand, UnaryOpNode)
+    assert node.operand.op.type == TokenType.BIT_NOT
+
+
+def test_unary_binds_more_tightly_than_multiplication():
+    node = _parse("-2*3")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.MULT
+    assert isinstance(node.left, UnaryOpNode)
+
+
+def test_parenthesized_expression_can_be_assignment_value():
+    node = _parse("answer = (40 + 2)")
+
+    assert isinstance(node, AssignmentNode)
+    assert isinstance(node.value, GroupNode)
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 18))
+
+
+def test_missing_closing_parenthesis_reports_eof_span():
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse("(2 + 3")
+
+    assert exc_info.value.diagnostic.message == "Expected RPAREN, got EOF"
+    assert exc_info.value.diagnostic.span == SourceSpan.at(Position(1, 7))
+
+
+@pytest.mark.parametrize("wrapper", [("(", ")"), ("-", "")])
+def test_expression_nesting_at_limit_is_accepted(wrapper):
+    prefix, suffix = wrapper
+    source = (prefix * MAX_EXPRESSION_NESTING) + "1" + (
+        suffix * MAX_EXPRESSION_NESTING
+    )
+
+    assert _parse(source) is not None
+
+
+@pytest.mark.parametrize("wrapper", [("(", ")"), ("-", "")])
+def test_expression_nesting_over_limit_is_structured_parse_error(wrapper):
+    prefix, suffix = wrapper
+    source = (prefix * (MAX_EXPRESSION_NESTING + 1)) + "1" + (
+        suffix * (MAX_EXPRESSION_NESTING + 1)
+    )
+
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse(source)
+
+    assert exc_info.value.diagnostic.message == (
+        f"Expression nesting exceeds the {MAX_EXPRESSION_NESTING}-level limit"
+    )
 
 
 @pytest.mark.parametrize(
@@ -149,7 +248,7 @@ def test_missing_end_raises_parse_error():
     assert exc_info.value.diagnostic.span == SourceSpan.at(Position(3, 1))
 
 
-def test_unexpected_token_in_factor_raises_parse_error():
+def test_unexpected_token_in_primary_raises_parse_error():
     with pytest.raises(RuneParseError) as exc_info:
         _parse(")")
     assert exc_info.value.diagnostic.span == SourceSpan(

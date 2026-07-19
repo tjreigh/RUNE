@@ -127,6 +127,9 @@ class Lexer:
             elif self.text[self.pos] == '*':
                 self.advance()
                 tokens.append(Token(TokenType.MULT, '*', self.span_from(start)))
+            elif self.text[self.pos] == '~':
+                self.advance()
+                tokens.append(Token(TokenType.BIT_NOT, '~', self.span_from(start)))
 
             # Comparison operators (with lookahead for multi-char)
             elif self.text[self.pos] == '<':

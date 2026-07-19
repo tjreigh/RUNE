@@ -11,6 +11,7 @@ class TokenType(Enum):
     PLUS = "PLUS"
     MINUS = "MINUS"
     MULT = "MULT"
+    BIT_NOT = "BIT_NOT"  # ~
     # Comparison operators
     LT = "LT"          # <
     GT = "GT"          # >
