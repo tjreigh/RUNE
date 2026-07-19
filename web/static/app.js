@@ -1,5 +1,9 @@
 const EXAMPLES = {
   smoke: "2+2",
+  variables: `animal = "cat"
+score = animal + 1
+score
+`,
   chaos: `"dog" + "cat"
 
 @chaos 1
@@ -16,7 +20,10 @@ else
 0
 end
 `,
-  full: `2+2
+  full: `answer = 40
+answer = answer + 2
+answer
+2+2
 "dog" + "cat"
 @chaos 1
 if ("dog" > "cat")
@@ -54,9 +61,16 @@ const runBtn = document.getElementById("run");
 const resetBtn = document.getElementById("reset");
 const examplesEl = document.getElementById("examples");
 const chaosLevelEl = document.getElementById("chaos-level");
+const inspectorStateEl = document.getElementById("inspector-state");
+const inspectorEventsEl = document.getElementById("inspector-events");
+const inspectorStatsEl = document.getElementById("inspector-stats");
+const inspectorTabs = Array.from(document.querySelectorAll(".inspector-tab"));
 
 let sessionId = null; // Opaque capability for server-side session state.
 let heldState = null; // Last state returned, used only for the status display.
+let heldEvents = [];
+let heldStats = null;
+let hasEvaluation = false;
 let requestSeq = 0; // Prevent stale responses from overwriting newer state.
 let activeController = null;
 
@@ -87,6 +101,79 @@ function updateChaosDisplay() {
   chaosLevelEl.textContent = String(threshold);
 }
 
+function formatState(state) {
+  const threshold = state?.chaos_threshold ?? 1;
+  const variables = Object.entries(state?.variables ?? {})
+    .sort(([left], [right]) => left.localeCompare(right));
+  const variableLines = variables.length === 0
+    ? ["Variables: (none)"]
+    : ["Variables:", ...variables.map(([name, value]) => `  ${name} = ${value}`)];
+  return [`Chaos threshold: ${threshold}`, ...variableLines].join("\n");
+}
+
+function formatEvent(event) {
+  if (event.kind === "variable_assigned") {
+    return `${event.data.name} = ${event.data.value}`;
+  }
+  if (event.kind === "chaos_threshold_changed") {
+    return `Chaos threshold = ${event.data.threshold}`;
+  }
+  return `${event.kind}: ${JSON.stringify(event.data)}`;
+}
+
+function formatStats(stats, evaluated) {
+  if (stats === null) {
+    return evaluated
+      ? "Not available (evaluation did not begin)."
+      : "No evaluation yet.";
+  }
+  return [
+    `Steps: ${stats.steps}`,
+    `Peak recursion depth: ${stats.peak_recursion_depth}`,
+    `Output values: ${stats.output_values}`,
+  ].join("\n");
+}
+
+function renderInspector() {
+  inspectorStateEl.textContent = formatState(heldState);
+  inspectorEventsEl.textContent = heldEvents.length === 0
+    ? "No runtime events."
+    : heldEvents.map(formatEvent).join("\n");
+  inspectorStatsEl.textContent = formatStats(heldStats, hasEvaluation);
+}
+
+function activateInspectorTab(selectedTab, moveFocus = true) {
+  for (const tab of inspectorTabs) {
+    const selected = tab === selectedTab;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+  }
+  if (moveFocus) {
+    selectedTab.focus();
+  }
+}
+
+for (const [index, tab] of inspectorTabs.entries()) {
+  tab.addEventListener("click", () => activateInspectorTab(tab, false));
+  tab.addEventListener("keydown", (event) => {
+    let nextIndex = null;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % inspectorTabs.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + inspectorTabs.length) % inspectorTabs.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = inspectorTabs.length - 1;
+    }
+    if (nextIndex !== null) {
+      event.preventDefault();
+      activateInspectorTab(inspectorTabs[nextIndex]);
+    }
+  });
+}
+
 resetBtn.addEventListener("click", async () => {
   ++requestSeq;
   if (activeController !== null) {
@@ -96,7 +183,11 @@ resetBtn.addEventListener("click", async () => {
   const resetSessionId = sessionId;
   sessionId = null;
   heldState = null;
+  heldEvents = [];
+  heldStats = null;
+  hasEvaluation = false;
   updateChaosDisplay();
+  renderInspector();
   runBtn.disabled = false;
   renderOutput("");
 
@@ -156,7 +247,11 @@ runBtn.addEventListener("click", async () => {
       if (response.status === 404) {
         sessionId = null;
         heldState = null;
+        heldEvents = [];
+        heldStats = null;
+        hasEvaluation = false;
         updateChaosDisplay();
+        renderInspector();
       }
       renderOutput(`Request rejected (${response.status}): ${detail}`, true);
       return;
@@ -165,7 +260,11 @@ runBtn.addEventListener("click", async () => {
     const result = await response.json();
     sessionId = result.session_id;
     heldState = result.state;
+    heldEvents = result.events ?? [];
+    heldStats = result.stats ?? null;
+    hasEvaluation = true;
     updateChaosDisplay();
+    renderInspector();
     if (result.ok) {
       renderOutput(result.values.map(String).join("\n"));
     } else {

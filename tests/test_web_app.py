@@ -321,6 +321,12 @@ def test_root_route_serves_html():
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert 'id="chaos-level">1<' in response.text
+    assert '<option value="variables">Variables</option>' in response.text
+    assert "answer = answer + 2" in response.text
+    assert '<details id="inspector" class="inspector">' in response.text
+    assert 'role="tablist" aria-label="Runtime internals"' in response.text
+    assert response.text.count('role="tabpanel"') == 3
+    assert 'id="inspector-state">Chaos threshold: 1' in response.text
     assert 'href="/static/style.css"' in response.text
     assert 'src="/static/app.js"' in response.text
 
@@ -338,6 +344,12 @@ def test_static_css_and_javascript_are_served_separately():
     assert "payload.session_id = sessionId" in javascript.text
     assert 'fetch("/reset"' in javascript.text
     assert "payload.state" not in javascript.text
+    assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
+    assert "heldEvents = result.events ?? []" in javascript.text
+    assert "heldStats = result.stats ?? null" in javascript.text
+    assert "sessionId" not in javascript.text.split("function formatState", 1)[1].split(
+        "function formatEvent", 1
+    )[0]
 
 
 def test_default_state_behavior():
@@ -350,6 +362,8 @@ def test_variables_persist_across_web_evaluations():
     client = TestClient(create_app())
     assigned = client.post("/evaluate", json={"source": "answer = 40"}).json()
     session_id = assigned["session_id"]
+    assert assigned["events"][0]["kind"] == "variable_assigned"
+    assert assigned["stats"]["steps"] > 0
 
     updated = client.post("/evaluate", json={
         "source": "answer = answer + 2",
@@ -394,6 +408,8 @@ def test_failed_evaluation_does_not_commit_partial_variable_state():
     })
     assert failed.json()["ok"] is False
     assert failed.json()["state"]["variables"] == {"value": 1}
+    assert failed.json()["events"] == []
+    assert failed.json()["stats"]["steps"] > 0
 
     unchanged = client.post("/evaluate", json={
         "source": "value",

@@ -19,12 +19,15 @@ server-side session until you press Reset.</p>
   <select id="examples">
     <option value="">-- load an example --</option>
     <option value="smoke">2 + 2</option>
+    <option value="variables">Variables</option>
     <option value="chaos">@chaos threshold demo</option>
     <option value="full">Full walkthrough (test.rune)</option>
   </select>
 </div>
 
-<textarea id="source" spellcheck="false">2+2</textarea>
+<textarea id="source" spellcheck="false">answer = 40
+answer = answer + 2
+answer</textarea>
 
 <div class="controls">
   <button id="run">Run</button>
@@ -32,5 +35,66 @@ server-side session until you press Reset.</p>
 </div>
 
 <div id="output"></div>
+
+<details id="inspector" class="inspector">
+  <summary>Show internals</summary>
+  <div class="inspector-tabs" role="tablist" aria-label="Runtime internals">
+    <button
+      type="button"
+      id="inspector-state-tab"
+      class="inspector-tab"
+      role="tab"
+      aria-selected="true"
+      aria-controls="inspector-state-panel"
+      tabindex="0"
+    >State</button>
+    <button
+      type="button"
+      id="inspector-events-tab"
+      class="inspector-tab"
+      role="tab"
+      aria-selected="false"
+      aria-controls="inspector-events-panel"
+      tabindex="-1"
+    >Events</button>
+    <button
+      type="button"
+      id="inspector-stats-tab"
+      class="inspector-tab"
+      role="tab"
+      aria-selected="false"
+      aria-controls="inspector-stats-panel"
+      tabindex="-1"
+    >Stats</button>
+  </div>
+
+  <section
+    id="inspector-state-panel"
+    class="inspector-panel"
+    role="tabpanel"
+    aria-labelledby="inspector-state-tab"
+  >
+    <pre id="inspector-state">Chaos threshold: 1
+Variables: (none)</pre>
+  </section>
+  <section
+    id="inspector-events-panel"
+    class="inspector-panel"
+    role="tabpanel"
+    aria-labelledby="inspector-events-tab"
+    hidden
+  >
+    <pre id="inspector-events">No runtime events.</pre>
+  </section>
+  <section
+    id="inspector-stats-panel"
+    class="inspector-panel"
+    role="tabpanel"
+    aria-labelledby="inspector-stats-tab"
+    hidden
+  >
+    <pre id="inspector-stats">No evaluation yet.</pre>
+  </section>
+</details>
 </body>
 </html>

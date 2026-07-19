@@ -127,8 +127,8 @@ class MaxBodySizeMiddleware:
 
 class FixedWindowRateLimiter:
     """Thread-safe, monotonic-clock fixed-window limiter with periodic stale
-    entry cleanup and a hard bucket cap. Deliberately per-process (run a
-    single uvicorn worker for v0.3)."""
+    entry cleanup and a hard bucket cap. Deliberately per-process; v0.4's
+    in-memory sessions also require one application process."""
 
     def __init__(
         self,
@@ -170,9 +170,9 @@ class EvaluateRateLimitMiddleware:
     """Rate-limit every request to /evaluate before body parsing or schema
     validation, so malformed and oversized requests cannot bypass the cap.
 
-    The client key comes from the ASGI scope populated by Uvicorn. For local
-    v0.3 that is the direct peer address; v0.3.1 must only trust proxy headers
-    from Caddy.
+    The client key comes from the ASGI scope populated by Uvicorn. Locally that
+    is the direct peer address; deployment must only trust proxy headers from
+    Caddy.
     """
 
     def __init__(self, app, limiter: FixedWindowRateLimiter):

@@ -183,7 +183,7 @@ def test_default_limits_execute_test_rune():
     source = (REPO_ROOT / "test.rune").read_text()
     result = evaluate(source)
     assert result.ok
-    assert result.values == [4, 626, 1, 2, 0]
+    assert result.values == [42, 4, 626, 1, 2, 0]
 
 
 def test_cli_exits_with_status_1_for_a_limit_error(capsys):

@@ -1,6 +1,9 @@
 import rune
 
-TEST_RUNE_SOURCE = """2+2
+TEST_RUNE_SOURCE = """answer = 40
+answer = answer + 2
+answer
+2+2
 "dog" + "cat"
 @chaos 1
 if ("dog" > "cat")
@@ -23,7 +26,7 @@ else
 end
 """
 
-EXPECTED_OUTPUT = "4\n626\n1\n2\n0\n"
+EXPECTED_OUTPUT = "42\n4\n626\n1\n2\n0\n"
 
 
 def test_run_file_golden_output(tmp_path, capsys):
