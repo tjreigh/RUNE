@@ -57,31 +57,41 @@ def test_state_persists_by_opaque_session_id():
     assert second.json()["session_id"] == session_id
 
 
-def test_client_supplied_runtime_state_is_rejected():
-    client = TestClient(create_app())
+def test_stale_client_reusing_returned_state_is_told_to_reload():
+    store = SessionStore()
+    client = TestClient(create_app(session_store=store))
+    first = client.post("/evaluate", json={"source": "@chaos 500"})
+    assert first.status_code == 200
+
     response = client.post("/evaluate", json={
-        "source": "1", "state": {"chaos_threshold": -1},
+        "source": "2+2",
+        "state": first.json()["state"],
     })
-    assert response.status_code == 422
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "This RUNE page is out of date. Reload the page before running again."
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert store.session_count == 1
 
 
-def test_client_cannot_inject_state_using_an_old_state_shape():
+def test_stale_client_response_does_not_depend_on_injected_state_shape():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={
         "source": "1", "state": {"chaos_threshold": "500"},
     })
-    assert response.status_code == 422
+    assert response.status_code == 409
 
     float_response = client.post("/evaluate", json={
         "source": "1", "state": {"chaos_threshold": 500.0},
     })
-    assert float_response.status_code == 422
+    assert float_response.status_code == 409
 
 
 def test_unknown_fields_are_rejected():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={
-        "source": "1", "state": {"chaos_threshold": 1, "extra": "nope"},
+        "source": "1", "unexpected": "nope",
     })
     assert response.status_code == 422
 
@@ -320,6 +330,7 @@ def test_root_route_serves_html():
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+    assert response.headers["cache-control"] == "no-store"
     assert 'id="chaos-level">1<' in response.text
     assert '<option value="variables">Variables</option>' in response.text
     assert "answer = answer + 2" in response.text
@@ -327,8 +338,8 @@ def test_root_route_serves_html():
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
     assert response.text.count('role="tabpanel"') == 3
     assert 'id="inspector-state">Chaos threshold: 1' in response.text
-    assert 'href="/static/style.css"' in response.text
-    assert 'src="/static/app.js"' in response.text
+    assert 'href="/static/style.css?v=0.4.0"' in response.text
+    assert 'src="/static/app.js?v=0.4.0"' in response.text
 
 
 def test_static_css_and_javascript_are_served_separately():
@@ -337,16 +348,20 @@ def test_static_css_and_javascript_are_served_separately():
     css = client.get("/static/style.css")
     assert css.status_code == 200
     assert "text/css" in css.headers["content-type"]
+    assert css.headers["cache-control"] == "no-cache"
 
     javascript = client.get("/static/app.js")
     assert javascript.status_code == 200
     assert "javascript" in javascript.headers["content-type"]
+    assert javascript.headers["cache-control"] == "no-cache"
     assert "payload.session_id = sessionId" in javascript.text
     assert 'fetch("/reset"' in javascript.text
     assert "payload.state" not in javascript.text
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
     assert "heldEvents = result.events ?? []" in javascript.text
     assert "heldStats = result.stats ?? null" in javascript.text
+    assert "formatRequestDetail(body.detail ?? body)" in javascript.text
+    assert "[object Object]" not in javascript.text
     assert "sessionId" not in javascript.text.split("function formatState", 1)[1].split(
         "function formatEvent", 1
     )[0]

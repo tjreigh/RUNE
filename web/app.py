@@ -12,7 +12,9 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +29,9 @@ from sessions import (
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+STALE_CLIENT_MESSAGE = (
+    "This RUNE page is out of date. Reload the page before running again."
+)
 
 MAX_CHUNKS = 10_000  # bounds a pathological client sending endless
                       # zero-length "more_body" chunks -- byte-size alone
@@ -191,6 +196,15 @@ class EvaluateRateLimitMiddleware:
         return await self.app(scope, receive, send)
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Require browsers to revalidate buildless static assets on reuse."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["cache-control"] = "no-cache"
+        return response
+
+
 class EvaluateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str
@@ -225,7 +239,11 @@ def create_app(
     session_store: SessionStore | None = None,
 ) -> FastAPI:
     app = FastAPI()
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount(
+        "/static",
+        RevalidatingStaticFiles(directory=STATIC_DIR),
+        name="static",
+    )
     rate_limiter = FixedWindowRateLimiter(rate_limit_max, rate_limit_window)
     app.add_middleware(MaxBodySizeMiddleware, max_bytes=max_request_bytes)
     # Added after MaxBodySizeMiddleware so Starlette makes it the outer layer:
@@ -237,9 +255,27 @@ def create_app(
     app.state.eval_timeout = eval_timeout
     app.state.session_store = session_store or SessionStore()
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        stale_state_field = any(
+            error.get("type") == "extra_forbidden"
+            and tuple(error.get("loc", ())) == ("body", "state")
+            for error in exc.errors()
+        )
+        if request.url.path == "/evaluate" and stale_state_field:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": STALE_CLIENT_MESSAGE},
+                headers={"cache-control": "no-store"},
+            )
+        return await request_validation_exception_handler(request, exc)
+
     @app.get("/")
     def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"cache-control": "no-store"},
+        )
 
     @app.post("/evaluate")
     def evaluate_endpoint(payload: EvaluateRequest):

@@ -96,6 +96,22 @@ function renderOutput(text, isError = false) {
   outputEl.classList.toggle("error", isError);
 }
 
+function formatRequestDetail(detail) {
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    return detail.map((issue) => {
+      const location = Array.isArray(issue.loc)
+        ? issue.loc.filter((part) => part !== "body").join(".")
+        : "";
+      const message = issue.msg ?? JSON.stringify(issue);
+      return location ? `${location}: ${message}` : message;
+    }).join("; ");
+  }
+  return JSON.stringify(detail);
+}
+
 function updateChaosDisplay() {
   const threshold = heldState?.chaos_threshold ?? 1;
   chaosLevelEl.textContent = String(threshold);
@@ -240,7 +256,7 @@ runBtn.addEventListener("click", async () => {
       let detail = response.statusText;
       try {
         const body = await response.json();
-        detail = body.detail || JSON.stringify(body);
+        detail = formatRequestDetail(body.detail ?? body);
       } catch (_) {
         // The status text is the best fallback for a non-JSON error body.
       }
