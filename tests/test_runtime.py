@@ -24,6 +24,24 @@ def test_multiple_outputs():
     assert result.values == [1, 2, 3]
 
 
+def test_prefixed_integer_literals_are_ordinary_runtime_integers():
+    result = evaluate("mask = 0b11110000\nmask + 0o10 + 0x10")
+
+    assert result.ok
+    assert result.values == [264]
+    assert result.state.variables == {"mask": 240}
+
+
+def test_malformed_prefixed_integer_becomes_lex_diagnostic():
+    result = evaluate("0b102")
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LEX
+    assert result.diagnostics[0].message == (
+        "Invalid digit '2' in binary integer literal"
+    )
+
+
 def test_pragma_only_produces_no_output():
     result = evaluate("@chaos 500")
     assert result.ok

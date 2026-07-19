@@ -3,6 +3,23 @@ from spans import Position, SourceSpan
 from diagnostics import RuneLexError
 
 MAX_INTEGER_LITERAL_DIGITS = 4_300
+MAX_INTEGER_LITERAL_BITS = 14_285
+
+_PREFIXED_INTEGER_SPECS = {
+    "b": (2, "binary", frozenset("01")),
+    "o": (8, "octal", frozenset("01234567")),
+    "x": (16, "hexadecimal", frozenset("0123456789abcdefABCDEF")),
+}
+
+# Bound both numeric magnitude and source scanning. The per-base text limits
+# are the number of digits needed to represent at most the same magnitude as a
+# 4,300-digit decimal integer; a final bit-length check handles the partially
+# filled leading digit in octal and hexadecimal forms.
+MAX_PREFIXED_INTEGER_LITERAL_DIGITS = {
+    2: MAX_INTEGER_LITERAL_BITS,
+    8: (MAX_INTEGER_LITERAL_BITS + 2) // 3,
+    16: (MAX_INTEGER_LITERAL_BITS + 3) // 4,
+}
 
 
 class Lexer:
@@ -184,6 +201,13 @@ class Lexer:
         start = self.pos
         source_start = source_start or self.current_position()
 
+        if (
+            self.text[self.pos] == "0"
+            and self.peek() is not None
+            and self.peek().lower() in _PREFIXED_INTEGER_SPECS
+        ):
+            return self.read_prefixed_number(source_start)
+
         # Read all consecutive digits
         while self.pos < len(self.text) and self.text[self.pos].isdigit():
             self.advance()
@@ -201,6 +225,60 @@ class Lexer:
                 "Invalid or unsupported integer literal",
                 self.span_from(source_start),
             ) from exc
+
+    def read_prefixed_number(self, source_start):
+        """Read a 0b, 0o, or 0x integer and validate its complete form."""
+        prefix = self.peek()
+        base, label, valid_digits = _PREFIXED_INTEGER_SPECS[prefix.lower()]
+        self.advance()  # 0
+        self.advance()  # base prefix
+        digits_start = self.pos
+
+        # Consume the whole contiguous candidate so an invalid digit produces
+        # one precise lex diagnostic instead of misleading adjacent tokens.
+        while (
+            self.pos < len(self.text)
+            and (self.text[self.pos].isalnum() or self.text[self.pos] == "_")
+        ):
+            self.advance()
+
+        digits = self.text[digits_start:self.pos]
+        literal_prefix = f"0{prefix}"
+        if not digits:
+            raise RuneLexError(
+                f"Expected digits after '{literal_prefix}'",
+                self.span_from(source_start),
+            )
+
+        invalid = next((char for char in digits if char not in valid_digits), None)
+        if invalid is not None:
+            raise RuneLexError(
+                f"Invalid digit {invalid!r} in {label} integer literal",
+                self.span_from(source_start),
+            )
+
+        max_digits = MAX_PREFIXED_INTEGER_LITERAL_DIGITS[base]
+        if len(digits) > max_digits:
+            raise RuneLexError(
+                f"{label.title()} integer literal exceeds the "
+                f"{max_digits}-digit limit",
+                self.span_from(source_start),
+            )
+
+        try:
+            value = int(digits, base)
+        except ValueError as exc:
+            raise RuneLexError(
+                "Invalid or unsupported integer literal",
+                self.span_from(source_start),
+            ) from exc
+
+        if value.bit_length() > MAX_INTEGER_LITERAL_BITS:
+            raise RuneLexError(
+                f"Integer literal exceeds the {MAX_INTEGER_LITERAL_BITS}-bit limit",
+                self.span_from(source_start),
+            )
+        return value
 
     def read_identifier(self):
         """Read an identifier (keyword) from current position"""

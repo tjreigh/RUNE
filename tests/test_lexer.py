@@ -1,6 +1,11 @@
 import pytest
 
-from lexer import Lexer, MAX_INTEGER_LITERAL_DIGITS
+from lexer import (
+    Lexer,
+    MAX_INTEGER_LITERAL_BITS,
+    MAX_INTEGER_LITERAL_DIGITS,
+    MAX_PREFIXED_INTEGER_LITERAL_DIGITS,
+)
 from tokens import TokenType
 from spans import Position, SourceSpan
 from diagnostics import RuneLexError
@@ -38,6 +43,110 @@ def test_integer_literal_at_digit_limit_is_accepted():
 
     assert token.type == TokenType.NUMBER
     assert isinstance(token.value, int)
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("0b101101", 45),
+        ("0B101101", 45),
+        ("0o755", 493),
+        ("0O755", 493),
+        ("0xCAFE", 51_966),
+        ("0Xcafe", 51_966),
+    ],
+)
+def test_prefixed_integer_literals_become_number_tokens(source, expected):
+    token = _tokenize(source)[0]
+
+    assert token.type == TokenType.NUMBER
+    assert token.value == expected
+    assert token.span == SourceSpan(Position(1, 1), Position(1, len(source) + 1))
+
+
+def test_prefixed_integer_does_not_consume_following_operator():
+    tokens = _tokenize("0x10+0b1")
+
+    assert [token.type for token in tokens[:-1]] == [
+        TokenType.NUMBER,
+        TokenType.PLUS,
+        TokenType.NUMBER,
+    ]
+    assert [token.value for token in tokens[:-1]] == [16, "+", 1]
+
+
+@pytest.mark.parametrize("source", ["0b", "0B", "0o", "0O", "0x", "0X"])
+def test_prefixed_integer_literal_requires_digits(source):
+    with pytest.raises(RuneLexError) as exc_info:
+        _tokenize(source)
+
+    assert exc_info.value.diagnostic.message == f"Expected digits after '{source}'"
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(1, 1), Position(1, 3)
+    )
+
+
+@pytest.mark.parametrize(
+    "source,label,invalid",
+    [
+        ("0b102", "binary", "2"),
+        ("0o789", "octal", "8"),
+        ("0xCAFEG", "hexadecimal", "G"),
+        ("0b10_01", "binary", "_"),
+    ],
+)
+def test_invalid_prefixed_integer_digit_has_one_precise_diagnostic(
+    source, label, invalid
+):
+    with pytest.raises(RuneLexError) as exc_info:
+        _tokenize(source)
+
+    assert exc_info.value.diagnostic.message == (
+        f"Invalid digit {invalid!r} in {label} integer literal"
+    )
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(1, 1), Position(1, len(source) + 1)
+    )
+
+
+@pytest.mark.parametrize(
+    "prefix,base,leading_digit",
+    [("0b", 2, "1"), ("0o", 8, "1"), ("0x", 16, "1")],
+)
+def test_prefixed_integer_at_text_and_magnitude_limit_is_accepted(
+    prefix, base, leading_digit
+):
+    digit_count = MAX_PREFIXED_INTEGER_LITERAL_DIGITS[base]
+    token = _tokenize(prefix + leading_digit + ("0" * (digit_count - 1)))[0]
+
+    assert token.type == TokenType.NUMBER
+    assert token.value.bit_length() <= MAX_INTEGER_LITERAL_BITS
+
+
+@pytest.mark.parametrize(
+    "prefix,base",
+    [("0b", 2), ("0o", 8), ("0x", 16)],
+)
+def test_prefixed_integer_over_text_limit_is_rejected(prefix, base):
+    digit_count = MAX_PREFIXED_INTEGER_LITERAL_DIGITS[base] + 1
+
+    with pytest.raises(RuneLexError) as exc_info:
+        _tokenize(prefix + ("1" * digit_count))
+
+    assert exc_info.value.diagnostic.message.endswith(
+        f"exceeds the {MAX_PREFIXED_INTEGER_LITERAL_DIGITS[base]}-digit limit"
+    )
+
+
+def test_hexadecimal_literal_over_magnitude_limit_is_rejected():
+    digit_count = MAX_PREFIXED_INTEGER_LITERAL_DIGITS[16]
+
+    with pytest.raises(RuneLexError) as exc_info:
+        _tokenize("0x" + ("F" * digit_count))
+
+    assert exc_info.value.diagnostic.message == (
+        f"Integer literal exceeds the {MAX_INTEGER_LITERAL_BITS}-bit limit"
+    )
 
 
 def test_string_token():
