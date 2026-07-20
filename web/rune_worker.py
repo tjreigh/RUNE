@@ -27,6 +27,17 @@ logger = logging.getLogger(__name__)
 
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_WORKER_ADDRESS_SPACE_BYTES = 192 * 1024 * 1024
+MAX_WORKER_CPU_SECONDS = 3
+MAX_WORKER_FILE_BYTES = 1_000_000
+
+
+def _lower_hard_resource_limit(resource_module, resource_kind, requested) -> None:
+    """Lower both halves of one rlimit without exceeding an inherited cap."""
+    _, inherited_hard = resource_module.getrlimit(resource_kind)
+    effective = requested
+    if inherited_hard != resource_module.RLIM_INFINITY:
+        effective = min(effective, inherited_hard)
+    resource_module.setrlimit(resource_kind, (effective, effective))
 
 
 def _apply_worker_resource_limits() -> None:
@@ -41,11 +52,19 @@ def _apply_worker_resource_limits() -> None:
 
     import resource
 
-    _, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
-    soft_limit = MAX_WORKER_ADDRESS_SPACE_BYTES
-    if hard_limit != resource.RLIM_INFINITY:
-        soft_limit = min(soft_limit, hard_limit)
-    resource.setrlimit(resource.RLIMIT_AS, (soft_limit, hard_limit))
+    # All limits are made irreversible inside this disposable child. Apply the
+    # address-space ceiling last so importing/configuring the resource module
+    # itself is outside the constrained allocation window.
+    _lower_hard_resource_limit(resource, resource.RLIMIT_CORE, 0)
+    _lower_hard_resource_limit(
+        resource, resource.RLIMIT_FSIZE, MAX_WORKER_FILE_BYTES
+    )
+    _lower_hard_resource_limit(
+        resource, resource.RLIMIT_CPU, MAX_WORKER_CPU_SECONDS
+    )
+    _lower_hard_resource_limit(
+        resource, resource.RLIMIT_AS, MAX_WORKER_ADDRESS_SPACE_BYTES
+    )
 
 
 def _atomic_write_json(path: Path, obj) -> None:

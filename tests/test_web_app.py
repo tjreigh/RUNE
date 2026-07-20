@@ -226,6 +226,50 @@ def test_rate_limit_returns_429_on_second_request():
     assert second.headers["retry-after"] == "60"
 
 
+def test_global_evaluation_rate_limit_bounds_all_clients():
+    app = create_app(
+        rate_limit_max=10,
+        global_rate_limit_max=1,
+        rate_limit_window=60.0,
+    )
+    first_client = TestClient(app, client=("client-a", 50_000))
+    second_client = TestClient(app, client=("client-b", 50_001))
+
+    first = first_client.post("/evaluate", json={"source": "2+2"})
+    assert first.status_code == 200
+
+    second = second_client.post("/evaluate", json={"source": "2+2"})
+    assert second.status_code == 429
+    assert second.headers["retry-after"] == "60"
+
+
+def test_new_session_rate_limit_does_not_block_existing_session():
+    store = SessionStore()
+    client = TestClient(create_app(
+        session_store=store,
+        rate_limit_max=10,
+        global_rate_limit_max=10,
+        new_session_rate_limit_max=1,
+    ))
+
+    created = client.post("/evaluate", json={"source": "answer = 42"})
+    assert created.status_code == 200
+    session_id = created.json()["session_id"]
+
+    rejected = client.post("/evaluate", json={"source": "1"})
+    assert rejected.status_code == 429
+    assert rejected.json()["detail"] == "new session rate limit exceeded"
+    assert rejected.headers["retry-after"] == "60"
+    assert store.session_count == 1
+
+    existing = client.post(
+        "/evaluate",
+        json={"source": "answer", "session_id": session_id},
+    )
+    assert existing.status_code == 200
+    assert existing.json()["values"] == [42]
+
+
 def test_rate_limiter_hard_caps_unique_client_buckets():
     limiter = FixedWindowRateLimiter(
         max_requests=1,

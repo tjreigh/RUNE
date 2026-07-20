@@ -51,7 +51,7 @@ case "$SERVICE_USER:$SERVICE_NAME" in
         ;;
 esac
 
-for command in caddy install sed systemctl systemd-analyze; do
+for command in awk caddy install sed systemctl systemd-analyze; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Required command not found: $command" >&2
         exit 1
@@ -113,9 +113,12 @@ if [ "$ACTIVATE" != "1" ]; then
     exit 0
 fi
 
-if ! grep -Fqx "import $CADDY_SITE" /etc/caddy/Caddyfile; then
-    echo "ACTIVATE=1 requested, but /etc/caddy/Caddyfile does not contain:" >&2
-    echo "  import $CADDY_SITE" >&2
+if ! awk -v site="$CADDY_SITE" \
+    '$1 == "import" && $2 == site && NF == 2 { found = 1 }
+     END { exit !found }' \
+    /etc/caddy/Caddyfile; then
+    echo "ACTIVATE=1 requested, but /etc/caddy/Caddyfile does not import:" >&2
+    echo "  $CADDY_SITE" >&2
     exit 1
 fi
 

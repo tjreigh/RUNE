@@ -2,7 +2,10 @@ import sys
 import time
 from types import SimpleNamespace
 
+import pytest
+
 import rune_worker
+from isolation import IsolationStatus
 from rune_worker import _bounded_dict, evaluate_isolated
 
 
@@ -22,12 +25,36 @@ def _normal_result_dict():
     }
 
 
-def test_linux_worker_address_space_is_capped(monkeypatch):
+def _resource_limit_probe(result_path):
+    import resource
+
+    rune_worker._apply_worker_resource_limits()
+    rune_worker._atomic_write_json(
+        result_path,
+        {
+            "address_space": resource.getrlimit(resource.RLIMIT_AS),
+            "cpu": resource.getrlimit(resource.RLIMIT_CPU),
+            "file_size": resource.getrlimit(resource.RLIMIT_FSIZE),
+            "core_dump": resource.getrlimit(resource.RLIMIT_CORE),
+        },
+    )
+
+
+def test_linux_worker_resource_limits_are_made_irreversible(monkeypatch):
     calls = []
+    limits = {
+        1: (-1, -1),
+        2: (-1, -1),
+        3: (-1, -1),
+        4: (-1, -1),
+    }
     fake_resource = SimpleNamespace(
-        RLIMIT_AS=9,
+        RLIMIT_CORE=1,
+        RLIMIT_FSIZE=2,
+        RLIMIT_CPU=3,
+        RLIMIT_AS=4,
         RLIM_INFINITY=-1,
-        getrlimit=lambda kind: (-1, -1),
+        getrlimit=lambda kind: limits[kind],
         setrlimit=lambda kind, limits: calls.append((kind, limits)),
     )
     monkeypatch.setattr(rune_worker.sys, "platform", "linux")
@@ -36,11 +63,56 @@ def test_linux_worker_address_space_is_capped(monkeypatch):
     rune_worker._apply_worker_resource_limits()
 
     assert calls == [
+        (fake_resource.RLIMIT_CORE, (0, 0)),
+        (
+            fake_resource.RLIMIT_FSIZE,
+            (rune_worker.MAX_WORKER_FILE_BYTES, rune_worker.MAX_WORKER_FILE_BYTES),
+        ),
+        (
+            fake_resource.RLIMIT_CPU,
+            (rune_worker.MAX_WORKER_CPU_SECONDS, rune_worker.MAX_WORKER_CPU_SECONDS),
+        ),
         (
             fake_resource.RLIMIT_AS,
-            (rune_worker.MAX_WORKER_ADDRESS_SPACE_BYTES, fake_resource.RLIM_INFINITY),
-        )
+            (
+                rune_worker.MAX_WORKER_ADDRESS_SPACE_BYTES,
+                rune_worker.MAX_WORKER_ADDRESS_SPACE_BYTES,
+            ),
+        ),
     ]
+
+
+def test_resource_limit_respects_lower_inherited_hard_limit():
+    calls = []
+    fake_resource = SimpleNamespace(
+        RLIM_INFINITY=-1,
+        getrlimit=lambda kind: (50, 100),
+        setrlimit=lambda kind, limits: calls.append((kind, limits)),
+    )
+
+    rune_worker._lower_hard_resource_limit(fake_resource, 7, 200)
+
+    assert calls == [(7, (100, 100))]
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="production rlimits are Linux-specific",
+)
+def test_spawned_linux_child_reports_effective_hard_resource_limits():
+    result = rune_worker.run_isolated(_resource_limit_probe)
+
+    assert result.status is IsolationStatus.OK
+    expected_maximums = {
+        "address_space": rune_worker.MAX_WORKER_ADDRESS_SPACE_BYTES,
+        "cpu": rune_worker.MAX_WORKER_CPU_SECONDS,
+        "file_size": rune_worker.MAX_WORKER_FILE_BYTES,
+        "core_dump": 0,
+    }
+    for name, maximum in expected_maximums.items():
+        soft, hard = result.value[name]
+        assert soft == hard
+        assert hard <= maximum
 
 
 def test_bounded_dict_passes_through_normal_result():

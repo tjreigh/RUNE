@@ -30,6 +30,8 @@ from sessions import (
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_MAX_CONCURRENT_EVALUATIONS = 2
+GLOBAL_EVALUATION_LIMIT_KEY = "all-evaluations"
+NEW_SESSION_LIMIT_KEY = "new-sessions"
 STALE_CLIENT_MESSAGE = (
     "This RUNE page is out of date. Reload the page before running again."
 )
@@ -173,17 +175,27 @@ class FixedWindowRateLimiter:
 
 
 class EvaluateRateLimitMiddleware:
-    """Rate-limit every request to /evaluate before body parsing or schema
-    validation, so malformed and oversized requests cannot bypass the cap.
+    """Apply per-client and aggregate limits before request-body parsing.
+
+    Malformed and oversized evaluations therefore consume both budgets rather
+    than bypassing admission control. Reset requests consume the client budget.
+    Per-client rejection happens first so one address cannot consume the entire
+    aggregate budget by itself.
 
     The client key comes from the ASGI scope populated by Uvicorn. Locally that
     is the direct peer address; deployment must only trust proxy headers from
     Caddy.
     """
 
-    def __init__(self, app, limiter: FixedWindowRateLimiter):
+    def __init__(
+        self,
+        app,
+        client_limiter: FixedWindowRateLimiter,
+        global_limiter: FixedWindowRateLimiter,
+    ):
         self.app = app
-        self.limiter = limiter
+        self.client_limiter = client_limiter
+        self.global_limiter = global_limiter
 
     async def __call__(self, scope, receive, send):
         if (
@@ -192,8 +204,13 @@ class EvaluateRateLimitMiddleware:
         ):
             client = scope.get("client")
             client_key = client[0] if client else "unknown-client"
-            if not self.limiter.allow(client_key):
-                return await _send_429(send, self.limiter.window_seconds)
+            if not self.client_limiter.allow(client_key):
+                return await _send_429(send, self.client_limiter.window_seconds)
+            if (
+                scope.get("path") == "/evaluate"
+                and not self.global_limiter.allow(GLOBAL_EVALUATION_LIMIT_KEY)
+            ):
+                return await _send_429(send, self.global_limiter.window_seconds)
         return await self.app(scope, receive, send)
 
 
@@ -232,6 +249,8 @@ def create_app(
     *,
     max_concurrency: int = DEFAULT_MAX_CONCURRENT_EVALUATIONS,
     rate_limit_max: int = 30,
+    global_rate_limit_max: int = 120,
+    new_session_rate_limit_max: int = 20,
     rate_limit_window: float = 60.0,
     max_source_length: int = 10_000,
     max_request_bytes: int = 16_384,
@@ -246,12 +265,28 @@ def create_app(
         name="static",
     )
     rate_limiter = FixedWindowRateLimiter(rate_limit_max, rate_limit_window)
+    global_rate_limiter = FixedWindowRateLimiter(
+        global_rate_limit_max,
+        rate_limit_window,
+        max_buckets=1,
+    )
+    new_session_rate_limiter = FixedWindowRateLimiter(
+        new_session_rate_limit_max,
+        rate_limit_window,
+        max_buckets=1,
+    )
     app.add_middleware(MaxBodySizeMiddleware, max_bytes=max_request_bytes)
     # Added after MaxBodySizeMiddleware so Starlette makes it the outer layer:
     # all /evaluate requests count before body parsing or validation.
-    app.add_middleware(EvaluateRateLimitMiddleware, limiter=rate_limiter)
+    app.add_middleware(
+        EvaluateRateLimitMiddleware,
+        client_limiter=rate_limiter,
+        global_limiter=global_rate_limiter,
+    )
     app.state.concurrency_semaphore = threading.Semaphore(max_concurrency)
     app.state.rate_limiter = rate_limiter
+    app.state.global_rate_limiter = global_rate_limiter
+    app.state.new_session_rate_limiter = new_session_rate_limiter
     app.state.max_source_length = max_source_length
     app.state.eval_timeout = eval_timeout
     app.state.session_store = session_store or SessionStore()
@@ -286,6 +321,19 @@ def create_app(
         if not app.state.concurrency_semaphore.acquire(blocking=False):
             raise HTTPException(503, "server busy, try again shortly")
         try:
+            if (
+                payload.session_id is None
+                and not app.state.new_session_rate_limiter.allow(
+                    NEW_SESSION_LIMIT_KEY
+                )
+            ):
+                raise HTTPException(
+                    429,
+                    "new session rate limit exceeded",
+                    headers={
+                        "Retry-After": str(max(1, int(rate_limit_window)))
+                    },
+                )
             try:
                 if payload.session_id is None:
                     session_id, session = app.state.session_store.create()

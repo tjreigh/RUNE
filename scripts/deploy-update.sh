@@ -10,13 +10,14 @@ set -u
 #
 # Usage:
 #   sudo scripts/deploy-update.sh                    # deploy origin/main
-#   sudo scripts/deploy-update.sh v0.3.1             # deploy a tag
+#   sudo scripts/deploy-update.sh v0.4.0             # deploy a tag
 #   sudo scripts/deploy-update.sh 0123456789abcdef    # deploy an exact SHA
 #
 # Configuration is available through environment variables:
 #   APP_DIR=/srv/rune/app
 #   SERVICE_USER=rune
 #   SERVICE_NAME=rune
+#   DOMAIN=rune.tjreigh.mobi
 #   REMOTE=origin
 #   LOCAL_URL=http://127.0.0.1:8000
 
@@ -28,11 +29,13 @@ fi
 APP_DIR="${APP_DIR:-/srv/rune/app}"
 SERVICE_USER="${SERVICE_USER:-rune}"
 SERVICE_NAME="${SERVICE_NAME:-rune}"
+DOMAIN="${DOMAIN:-}"
 REMOTE="${REMOTE:-origin}"
 LOCAL_URL="${LOCAL_URL:-http://127.0.0.1:8000}"
 DEPLOY_REF="${1:-$REMOTE/main}"
 PYTHON_BIN="$APP_DIR/.venv/bin/python"
 SMOKE_SCRIPT="$APP_DIR/scripts/deploy-smoke-test.sh"
+CADDY_SITE="/etc/caddy/$SERVICE_NAME.caddy"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Run this script as root, normally with sudo." >&2
@@ -65,6 +68,25 @@ if [ ! -x "$SMOKE_SCRIPT" ]; then
     echo "Smoke-test script missing or not executable: $SMOKE_SCRIPT" >&2
     exit 1
 fi
+
+# Reuse the domain from the installed, rendered site when the operator does
+# not supply DOMAIN explicitly. This lets normal updates reinstall changed
+# service and proxy templates instead of silently leaving deployment policy
+# stale.
+if [ -z "$DOMAIN" ] && [ -r "$CADDY_SITE" ]; then
+    DOMAIN="$(
+        sed -n 's/^\([A-Za-z0-9][A-Za-z0-9.-]*\) {$/\1/p' "$CADDY_SITE" |
+            sed -n '1p'
+    )"
+fi
+
+case "$DOMAIN" in
+    ""|*[!A-Za-z0-9.-]*)
+        echo "Unable to determine the deployment domain." >&2
+        echo "Set DOMAIN explicitly, for example DOMAIN=rune.example.com." >&2
+        exit 1
+        ;;
+esac
 
 # Keep a private copy outside the checkout so rollback verification still
 # works even when the target or previous commit predates these helper scripts.
@@ -112,9 +134,31 @@ deploy_commit() {
     run_as_service env PYTHONPATH="$APP_DIR/web" \
         "$PYTHON_BIN" -c 'import app' || return 1
 
+    echo "Installing and validating deployment configuration ..."
+    DOMAIN="$DOMAIN" \
+    APP_DIR="$APP_DIR" \
+    SERVICE_USER="$SERVICE_USER" \
+    SERVICE_NAME="$SERVICE_NAME" \
+    ACTIVATE=0 \
+        "$APP_DIR/scripts/deploy-install-config.sh" || return 1
+
+    if ! awk -v site="$CADDY_SITE" \
+        '$1 == "import" && $2 == site && NF == 2 { found = 1 }
+         END { exit !found }' \
+        /etc/caddy/Caddyfile; then
+        echo "The operator-owned Caddyfile does not import $CADDY_SITE." >&2
+        return 1
+    fi
+
+    echo "Validating the complete operator-owned Caddy configuration ..."
+    caddy validate \
+        --config /etc/caddy/Caddyfile \
+        --adapter caddyfile || return 1
+
     echo "Restarting $SERVICE_NAME.service ..."
     systemctl restart "$SERVICE_NAME.service" || return 1
     systemctl is-active --quiet "$SERVICE_NAME.service" || return 1
+    systemctl reload caddy.service || return 1
 
     BASE_URL="$LOCAL_URL" PYTHON_BIN="$PYTHON_BIN" "$SMOKE_RUNNER"
 }

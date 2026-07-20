@@ -12,7 +12,7 @@ WorkingDirectory=@@APP_DIR@@
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 
-ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn app:app --app-dir @@APP_DIR@@/web --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-server-header
+ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn app:app --app-dir @@APP_DIR@@/web --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-server-header --limit-concurrency 32 --backlog 64 --timeout-keep-alive 5
 
 Restart=on-failure
 RestartSec=3
@@ -20,13 +20,28 @@ TimeoutStopSec=10
 KillMode=control-group
 
 NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
 RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+SystemCallArchitectures=native
+LockPersonality=true
+RemoveIPC=true
 UMask=0077
 
 # Tune these for the VPS if necessary. The cgroup limits include disposable
@@ -34,6 +49,8 @@ UMask=0077
 MemoryMax=512M
 MemorySwapMax=0
 TasksMax=64
+CPUQuota=100%
+LimitNOFILE=1024
 
 [Install]
 WantedBy=multi-user.target
