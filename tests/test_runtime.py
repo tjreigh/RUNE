@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from runtime import (
     RuntimeState,
     RuntimeEvent,
@@ -121,6 +123,16 @@ def test_runtime_state_detaches_input_and_returned_variable_mappings():
     detached = state.variables
     detached["answer"] = -1
     assert state.variables == {"answer": 42}
+
+
+def test_runtime_state_rejects_invalid_numeric_types():
+    for threshold in (True, -1, "1"):
+        with pytest.raises(ValueError):
+            RuntimeState(chaos_threshold=threshold)
+
+    for value in (True, "42"):
+        with pytest.raises(ValueError):
+            RuntimeState(variables={"answer": value})
 
 
 def test_supplied_state_affects_later_conditionals():

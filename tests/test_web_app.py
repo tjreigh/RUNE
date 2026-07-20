@@ -204,6 +204,16 @@ def test_concurrency_cap_returns_503_then_recovers():
     assert recovered.status_code == 200
 
 
+def test_default_concurrency_is_bounded_to_two_evaluations():
+    app = create_app()
+    semaphore = app.state.concurrency_semaphore
+    assert semaphore.acquire(blocking=False)
+    assert semaphore.acquire(blocking=False)
+    assert not semaphore.acquire(blocking=False)
+    semaphore.release()
+    semaphore.release()
+
+
 def test_rate_limit_returns_429_on_second_request():
     app = create_app(rate_limit_max=1, rate_limit_window=60.0)
     client = TestClient(app)
@@ -300,18 +310,16 @@ def test_endpoint_maps_crash_outcome_to_500():
 def test_huge_integer_source_returns_limit_diagnostic_not_500():
     client = TestClient(create_app())
     # Three ~2200-digit literals multiplied together produce a ~6600-digit
-    # result in only 2 multiplications (5 steps, recursion depth 3) --
-    # comfortably within every ExecutionLimits default, while still
-    # exceeding Python 3.11+'s 4300-digit int-to-str conversion limit at
-    # serialization time. Exercises the real evaluate_isolated() path (not
-    # a fake evaluator), through the actual worker's _bounded_dict.
+    # mathematical result in only 2 multiplications. Core preflight must reject
+    # it before allocation while the real isolated-worker path remains healthy.
     base = "9" * 2200
     source = f"{base}*{base}*{base}"
     response = client.post("/evaluate", json={"source": source})
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is False
-    assert body["diagnostics"][0]["message"] == "Result too large to serialize"
+    assert body["diagnostics"][0]["kind"] == "limit"
+    assert "Integer magnitude exceeds" in body["diagnostics"][0]["message"]
 
 
 def test_oversized_integer_literal_returns_lex_diagnostic_not_500():

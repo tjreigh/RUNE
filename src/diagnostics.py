@@ -67,7 +67,7 @@ class RuneInternalError(RuneError):
 
 
 class RuneLimitError(RuneError):
-    """Raised when an execution limit (step, recursion, or output budget)
-    is exceeded. A user/runtime failure, not an internal interpreter bug."""
+    """Raised when an execution resource budget is exceeded. A user/runtime
+    failure, not an internal interpreter bug."""
     def __init__(self, message: str, span: SourceSpan | None = None):
         super().__init__(Diagnostic(message, DiagnosticKind.LIMIT, span))

@@ -1,4 +1,6 @@
+import sys
 import time
+from types import SimpleNamespace
 
 import rune_worker
 from rune_worker import _bounded_dict, evaluate_isolated
@@ -8,12 +10,37 @@ def _hanging_evaluator(source, state=None, limits=None):
     time.sleep(10)  # far longer than any timeout used in these tests
 
 
+def _memory_error_evaluator(source, state=None, limits=None):
+    raise MemoryError
+
+
 def _normal_result_dict():
     return {
         "ok": True, "values": [4], "diagnostics": [], "events": [],
         "state": {"chaos_threshold": 1},
         "stats": {"steps": 3, "peak_recursion_depth": 2, "output_values": 1},
     }
+
+
+def test_linux_worker_address_space_is_capped(monkeypatch):
+    calls = []
+    fake_resource = SimpleNamespace(
+        RLIMIT_AS=9,
+        RLIM_INFINITY=-1,
+        getrlimit=lambda kind: (-1, -1),
+        setrlimit=lambda kind, limits: calls.append((kind, limits)),
+    )
+    monkeypatch.setattr(rune_worker.sys, "platform", "linux")
+    monkeypatch.setitem(sys.modules, "resource", fake_resource)
+
+    rune_worker._apply_worker_resource_limits()
+
+    assert calls == [
+        (
+            fake_resource.RLIMIT_AS,
+            (rune_worker.MAX_WORKER_ADDRESS_SPACE_BYTES, fake_resource.RLIM_INFINITY),
+        )
+    ]
 
 
 def test_bounded_dict_passes_through_normal_result():
@@ -76,6 +103,22 @@ def test_evaluate_isolated_timeout_translation():
     assert outcome.body["diagnostics"][0]["kind"] == "limit"
     assert outcome.body["diagnostics"][0]["message"] == "Wall-clock timeout exceeded"
     assert outcome.body["state"] == {"chaos_threshold": 1}
+
+
+def test_evaluate_isolated_memory_error_becomes_limit_outcome():
+    outcome = evaluate_isolated(
+        "2+2",
+        {"chaos_threshold": 7},
+        worker_evaluator=_memory_error_evaluator,
+    )
+
+    assert outcome.status_code == 200
+    assert outcome.body["ok"] is False
+    assert outcome.body["diagnostics"][0]["kind"] == "limit"
+    assert outcome.body["diagnostics"][0]["message"] == (
+        "Evaluation memory limit exceeded"
+    )
+    assert outcome.body["state"] == {"chaos_threshold": 7}
 
 
 def _raising_evaluator(source, state=None, limits=None):

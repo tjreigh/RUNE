@@ -32,6 +32,7 @@ UMask=0077
 # Tune these for the VPS if necessary. The cgroup limits include disposable
 # evaluator subprocesses, not just the Uvicorn parent.
 MemoryMax=512M
+MemorySwapMax=0
 TasksMax=64
 
 [Install]

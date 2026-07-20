@@ -15,6 +15,8 @@ class RuntimeState:
     _variables: tuple[tuple[str, int], ...]
 
     def __init__(self, chaos_threshold: int = 1, variables=None):
+        if type(chaos_threshold) is not int or chaos_threshold < 0:
+            raise ValueError("chaos_threshold must be a non-negative integer")
         if variables is None:
             items = ()
         elif isinstance(variables, Mapping):
@@ -27,7 +29,7 @@ class RuntimeState:
         for name, value in normalized:
             if not isinstance(name, str) or not name:
                 raise ValueError("variable names must be non-empty strings")
-            if not isinstance(value, int):
+            if type(value) is not int:
                 raise ValueError("variable values must be integers")
         object.__setattr__(self, "chaos_threshold", chaos_threshold)
         object.__setattr__(self, "_variables", normalized)

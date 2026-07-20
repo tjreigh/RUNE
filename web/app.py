@@ -29,6 +29,7 @@ from sessions import (
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEFAULT_MAX_CONCURRENT_EVALUATIONS = 2
 STALE_CLIENT_MESSAGE = (
     "This RUNE page is out of date. Reload the page before running again."
 )
@@ -229,7 +230,7 @@ def _diagnostic_envelope(state: dict, kind: str, message: str, stats) -> dict:
 
 def create_app(
     *,
-    max_concurrency: int = 4,
+    max_concurrency: int = DEFAULT_MAX_CONCURRENT_EVALUATIONS,
     rate_limit_max: int = 30,
     rate_limit_window: float = 60.0,
     max_source_length: int = 10_000,

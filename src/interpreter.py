@@ -21,7 +21,7 @@ class Interpreter:
     Tree-walking interpreter for RUNE
     Visits each node in the AST and computes the result against a
     RuntimeState, recording structured RuntimeEvents instead of printing,
-    while enforcing deterministic step/recursion/output budgets.
+    while enforcing deterministic work, state, output, and integer budgets.
     """
 
     def __init__(self, state=None, limits=None):
@@ -46,10 +46,47 @@ class Interpreter:
         """Count one output value against the output budget. Unlike steps
         and recursion depth, a rejected value was never actually emitted,
         so the counter (and reported stats) only reflect accepted values."""
+        self._check_integer(value, span)
         if self._output_count + 1 > self.limits.max_output_values:
             raise RuneLimitError("Output budget exceeded", span)
         self._output_count += 1
         return value
+
+    def _check_integer(self, value, span):
+        """Enforce the runtime integer invariant at value boundaries."""
+        if value.bit_length() > self.limits.max_integer_bits:
+            raise RuneLimitError(
+                "Integer magnitude exceeds the "
+                f"{self.limits.max_integer_bits}-bit limit",
+                span,
+            )
+        return value
+
+    def _check_state(self):
+        """Reject state created under a looser limit before evaluating it."""
+        self._check_integer(self.state.chaos_threshold, None)
+        variables = self.state.variables
+        if len(variables) > self.limits.max_variables:
+            raise RuneLimitError("Variable budget exceeded", None)
+        for value in variables.values():
+            self._check_integer(value, None)
+
+    def _checked_multiply(self, left, right, span):
+        """Reject a definitely oversized product before allocating it.
+
+        For nonzero integers the result uses either L+R-1 or L+R bits. If
+        the lower bound fits, constructing the product can exceed the budget
+        by at most one bit, after which the exact check decides the boundary.
+        """
+        if left and right:
+            minimum_result_bits = left.bit_length() + right.bit_length() - 1
+            if minimum_result_bits > self.limits.max_integer_bits:
+                raise RuneLimitError(
+                    "Integer magnitude exceeds the "
+                    f"{self.limits.max_integer_bits}-bit limit",
+                    span,
+                )
+        return self._check_integer(left * right, span)
 
     def visit(self, node):
         """Dispatch to appropriate visit method based on node type"""
@@ -99,11 +136,11 @@ class Interpreter:
 
     def visit_number(self, node):
         """A number is just its value"""
-        return node.value
+        return self._check_integer(node.value, node.span)
 
     def visit_string(self, node):
         """THE RUNE MAGIC: Convert string to sum of ASCII values"""
-        return sum(ord(c) for c in node.value)
+        return self._check_integer(sum(ord(c) for c in node.value), node.span)
 
     def visit_group(self, node):
         """Evaluate a parenthesized expression without changing its value."""
@@ -113,9 +150,9 @@ class Interpreter:
         """Evaluate numeric negation or infinite-width bitwise complement."""
         operand = self.visit(node.operand)
         if node.op.type == TokenType.MINUS:
-            return -operand
+            return self._check_integer(-operand, node.op.span)
         elif node.op.type == TokenType.BIT_NOT:
-            return ~operand
+            return self._check_integer(~operand, node.op.span)
         raise RuneInternalError(
             f"Unknown unary operator: {node.op.type.value}", node.op.span
         )
@@ -128,11 +165,11 @@ class Interpreter:
 
         # Perform the operation
         if node.op.type == TokenType.PLUS:
-            return left + right
+            return self._check_integer(left + right, node.op.span)
         elif node.op.type == TokenType.MINUS:
-            return left - right
+            return self._check_integer(left - right, node.op.span)
         elif node.op.type == TokenType.MULT:
-            return left * right
+            return self._checked_multiply(left, right, node.op.span)
         else:
             raise RuneInternalError(
                 f"Unknown operator: {node.op.type.value}", node.op.span
@@ -168,11 +205,12 @@ class Interpreter:
     def visit_chaos_pragma(self, node):
         """Handle @chaos pragma - replaces the working state and records
         a structured event instead of printing."""
-        self.state = self.state.with_chaos_threshold(node.threshold)
+        threshold = self._check_integer(node.threshold, node.span)
+        self.state = self.state.with_chaos_threshold(threshold)
         self.events.append(
             RuntimeEvent(
                 kind="chaos_threshold_changed",
-                data={"threshold": node.threshold},
+                data={"threshold": threshold},
                 span=node.span,
             )
         )
@@ -184,7 +222,7 @@ class Interpreter:
         variables = self.state.variables
         if node.name not in variables:
             raise RuneRuntimeError(f"Undefined variable '{node.name}'", node.span)
-        return variables[node.name]
+        return self._check_integer(variables[node.name], node.span)
 
     def visit_assignment(self, node):
         """Evaluate and commit one numeric value to the working state.
@@ -193,6 +231,7 @@ class Interpreter:
         environment never stores a separate string runtime type.
         """
         value = self.visit(node.value)
+        self._check_integer(value, node.value.span)
         variables = self.state.variables
         if node.name not in variables and len(variables) >= self.limits.max_variables:
             raise RuneLimitError("Variable budget exceeded", node.span)
@@ -252,6 +291,7 @@ class Interpreter:
         (not wrapped in a ProgramNode) never passes through _exec_block, so
         it is emitted here instead; a list or None result has already been
         accounted for further down and is returned unchanged."""
+        self._check_state()
         raw = self.visit(ast)
         if raw is None or isinstance(raw, list):
             return raw

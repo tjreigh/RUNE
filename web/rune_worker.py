@@ -26,6 +26,26 @@ from isolation import IsolationStatus, run_isolated  # noqa: E402
 logger = logging.getLogger(__name__)
 
 MAX_RESPONSE_BYTES = 64 * 1024
+MAX_WORKER_ADDRESS_SPACE_BYTES = 192 * 1024 * 1024
+
+
+def _apply_worker_resource_limits() -> None:
+    """Cap a production evaluator before it runs untrusted RUNE code.
+
+    RLIMIT_AS is Unix-specific and its behavior varies outside Linux, so local
+    development platforms retain the language-level and subprocess limits.
+    The deployment's systemd cgroup remains the aggregate Linux backstop.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+
+    import resource
+
+    _, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
+    soft_limit = MAX_WORKER_ADDRESS_SPACE_BYTES
+    if hard_limit != resource.RLIM_INFINITY:
+        soft_limit = min(soft_limit, hard_limit)
+    resource.setrlimit(resource.RLIMIT_AS, (soft_limit, hard_limit))
 
 
 def _atomic_write_json(path: Path, obj) -> None:
@@ -49,19 +69,23 @@ def _oversized_envelope(state_dict: dict, stats) -> dict:
     }
 
 
-def _bounded_dict(result_dict: dict, state_dict: dict) -> dict:
-    """Guards the one gap ExecutionLimits doesn't close: it bounds the
-    *count* of output values, not their magnitude, and RUNE's `*` can
-    produce an astronomically large integer in very few steps. Two
-    distinct failure shapes land here as a LIMIT outcome, not a crash: the
-    response is simply too big, or (Python 3.11+) the integer itself
-    exceeds the interpreter's string-conversion digit limit and
-    json.dumps() raises ValueError/OverflowError.
+def _memory_limit_envelope(state_dict: dict) -> dict:
+    return {
+        "ok": False,
+        "values": [],
+        "diagnostics": [{
+            "kind": DiagnosticKind.LIMIT.value,
+            "message": "Evaluation memory limit exceeded",
+            "span": None,
+        }],
+        "events": [],
+        "state": state_dict,
+        "stats": None,
+    }
 
-    This is a pragmatic web-layer stopgap, not a real fix -- the correct
-    long-term fix is bounding value magnitude inside the interpreter
-    itself (a new ExecutionLimits field), a src/ change out of scope here.
-    """
+
+def _bounded_dict(result_dict: dict, state_dict: dict) -> dict:
+    """Keep serialization bounded even if a future core invariant regresses."""
     try:
         text = json.dumps(result_dict)
     except (ValueError, OverflowError):
@@ -78,6 +102,7 @@ def _worker_entrypoint(result_path, source, state_dict, evaluator=evaluate):
     freshly spawned 'spawn'-context child, which re-imports everything
     fresh."""
     try:
+        _apply_worker_resource_limits()
         state = RuntimeState(
             chaos_threshold=state_dict.get("chaos_threshold", 1),
             variables=state_dict.get("variables", {}),
@@ -85,6 +110,12 @@ def _worker_entrypoint(result_path, source, state_dict, evaluator=evaluate):
         result = evaluator(source, state=state, limits=ExecutionLimits())
         bounded = _bounded_dict(result.to_dict(), state_dict)
         _atomic_write_json(result_path, bounded)
+    except MemoryError:
+        try:
+            _atomic_write_json(result_path, _memory_limit_envelope(state_dict))
+        except Exception:
+            logger.exception("RUNE worker could not report its memory limit")
+            raise SystemExit(1)
     except Exception:
         logger.exception("RUNE evaluation worker crashed")
         # No file written -- the parent sees "exited, no result" -> CRASHED.

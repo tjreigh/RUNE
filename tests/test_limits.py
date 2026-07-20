@@ -28,6 +28,88 @@ def test_execution_limits_rejects_invalid_values():
         ExecutionLimits(max_output_values=0)
     with pytest.raises(ValueError):
         ExecutionLimits(max_variables=0)
+    with pytest.raises(ValueError):
+        ExecutionLimits(max_integer_bits=0)
+
+
+def test_integer_at_exact_bit_limit_succeeds():
+    result = evaluate("15 * 17", limits=ExecutionLimits(max_integer_bits=8))
+
+    assert result.ok
+    assert result.values == [255]
+
+
+def test_multiplication_over_integer_limit_is_rejected_at_operator():
+    result = evaluate("16 * 16", limits=ExecutionLimits(max_integer_bits=8))
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == (
+        "Integer magnitude exceeds the 8-bit limit"
+    )
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(1, 4), Position(1, 5)
+    )
+
+
+def test_definitely_oversized_multiplication_is_not_attempted():
+    class ExplodingInt(int):
+        def __mul__(self, other):
+            raise AssertionError("oversized product was allocated")
+
+    interpreter = Interpreter(limits=ExecutionLimits(max_integer_bits=8))
+    with pytest.raises(RuneLimitError):
+        interpreter._checked_multiply(ExplodingInt(256), ExplodingInt(256), None)
+
+
+def test_addition_over_integer_limit_is_rejected():
+    result = evaluate("255 + 1", limits=ExecutionLimits(max_integer_bits=8))
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+
+
+def test_collapsed_string_over_integer_limit_is_rejected():
+    result = evaluate('"AA"', limits=ExecutionLimits(max_integer_bits=7))
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+
+
+def test_state_from_looser_limit_is_rejected_before_execution():
+    state = RuntimeState(chaos_threshold=1, variables={"large": 256})
+    result = evaluate("1", state, limits=ExecutionLimits(max_integer_bits=8))
+
+    assert not result.ok
+    assert result.state is state
+    assert result.stats.steps == 0
+
+
+def test_state_from_higher_variable_limit_is_rejected_before_execution():
+    state = RuntimeState(variables={"a": 1, "b": 2})
+    result = evaluate("1", state, limits=ExecutionLimits(max_variables=1))
+
+    assert not result.ok
+    assert result.diagnostics[0].message == "Variable budget exceeded"
+    assert result.state is state
+    assert result.stats.steps == 0
+
+
+def test_repetitive_squaring_is_rejected_transactionally():
+    state = RuntimeState(variables={"kept": 7})
+    squarings = "\n".join(["x = x * x"] * 14)
+    result = evaluate(
+        f"x = 2\n{squarings}\nx",
+        state,
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert "14285-bit limit" in result.diagnostics[0].message
+    assert result.state is state
+    assert result.state.variables == {"kept": 7}
+    assert result.events == []
+    assert result.values == []
 
 
 def test_step_budget_exact_limit_succeeds():
