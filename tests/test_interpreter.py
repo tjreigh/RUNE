@@ -192,14 +192,14 @@ def test_assigned_string_collapses_immediately_to_a_number():
 
 def test_assignment_in_executed_branch_updates_state():
     interpreter = Interpreter()
-    ast = Parser(Lexer("if (1)\nanswer = 42\nend").tokenize()).parse()
+    ast = Parser(Lexer("if (1)\nanswer = 42\nend if").tokenize()).parse()
     assert interpreter.interpret(ast) == []
     assert interpreter.state.variables == {"answer": 42}
 
 
 def test_assignment_in_skipped_branch_does_not_update_state():
     interpreter = Interpreter()
-    ast = Parser(Lexer("if (0)\nanswer = 42\nend").tokenize()).parse()
+    ast = Parser(Lexer("if (0)\nanswer = 42\nend if").tokenize()).parse()
     assert interpreter.interpret(ast) == []
     assert interpreter.state.variables == {}
 
@@ -271,7 +271,7 @@ def test_higher_chaos_threshold_controls_logic_before_normalization():
 
 
 def test_normalized_logical_result_can_itself_be_chaos_falsy():
-    assert _run("@chaos 10\nif (5 or 20)\n99\nelse\n0\nend") == [0]
+    assert _run("@chaos 10\nif (5 or 20)\n99\nelse\n0\nend if") == [0]
 
 
 def test_chaos_truthy_boundaries():
@@ -283,22 +283,22 @@ def test_chaos_truthy_boundaries():
 
 
 def test_if_only_first_truthy_branch_executes():
-    result = _run("@chaos 1\nif (1)\n10\nelif (1)\n20\nend")
+    result = _run("@chaos 1\nif (1)\n10\nelif (1)\n20\nend if")
     assert result == [10]
 
 
 def test_if_else_all_falsy():
-    result = _run("@chaos 1\nif (0)\n10\nelse\n20\nend")
+    result = _run("@chaos 1\nif (0)\n10\nelse\n20\nend if")
     assert result == [20]
 
 
 def test_if_no_else_all_falsy_returns_empty_list():
-    result = _run("@chaos 1\nif (0)\n10\nend")
+    result = _run("@chaos 1\nif (0)\n10\nend if")
     assert result == []
 
 
 def test_nested_if_flattens():
-    result = _run("@chaos 1\nif (1)\nif (1)\n99\nend\nend")
+    result = _run("@chaos 1\nif (1)\nif (1)\n99\nend if\nend if")
     assert result == [99]
 
 

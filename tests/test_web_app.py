@@ -50,7 +50,7 @@ def test_state_persists_by_opaque_session_id():
     session_id = first.json()["session_id"]
 
     second = client.post("/evaluate", json={
-        "source": 'if ("dog" > "cat")\n1\nelse\n0\nend',
+        "source": 'if ("dog" > "cat")\n1\nelse\n0\nend if',
         "session_id": session_id,
     })
     assert second.json()["values"] == [0]

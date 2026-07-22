@@ -55,7 +55,7 @@ class Parser:
         pragma    : PRAGMA CHAOS NUMBER
         if_stmt   : IF LPAREN expr RPAREN statement*
                     (ELIF LPAREN expr RPAREN statement*)*
-                    (ELSE statement*)? END
+                    (ELSE statement*)? END IF
         expr      : logical_or
         logical_or: logical_and (OR logical_and)*
         logical_and: logical_not (AND logical_not)*
@@ -155,6 +155,19 @@ class Parser:
 
         return statements
 
+    def block_end(self, block_type):
+        """Consume ``end <block type>`` and return the closing label token."""
+        self.eat(TokenType.END)
+        if self.current_token().type != block_type:
+            label = block_type.value.lower()
+            raise RuneParseError(
+                f"Expected '{label}' after 'end'",
+                self.current_token().span,
+            )
+        closing = self.current_token()
+        self.eat(block_type)
+        return closing
+
     def statement(self):
         """Parse a pragma, conditional, or expression statement."""
         if self.current_token().type == TokenType.PRAGMA:
@@ -193,7 +206,7 @@ class Parser:
         )
 
     def if_stmt(self):
-        """Parse an if/elif/else/end conditional."""
+        """Parse an if/elif/else/end if conditional."""
         start = self.current_token().span.start
         self.eat(TokenType.IF)
         self.eat(TokenType.LPAREN)
@@ -217,14 +230,13 @@ class Parser:
             self.eat(TokenType.ELSE)
             else_block = self.block({TokenType.END})
 
-        end_token = self.current_token()
-        self.eat(TokenType.END)
+        end_label = self.block_end(TokenType.IF)
         return IfNode(
             condition,
             then_block,
             elif_clauses,
             else_block,
-            span=SourceSpan(start, end_token.span.end),
+            span=SourceSpan(start, end_label.span.end),
         )
 
     def expr(self):

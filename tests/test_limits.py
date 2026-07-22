@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 THREE_STATEMENTS = "1\n2\n3"
 
 # Peak recursion depth 3: outer if -> inner if's condition/body visit() calls.
-NESTED_IF = 'if (1)\nif (1)\n99\nend\nend'
+NESTED_IF = 'if (1)\nif (1)\n99\nend if\nend if'
 
 
 def test_execution_limits_rejects_invalid_values():
@@ -260,7 +260,7 @@ def test_output_budget_one_over_fails():
 
 
 def test_nested_conditional_results_count_once():
-    program = compile_source('if (1)\nif (1)\n1\n2\nend\nend')
+    program = compile_source('if (1)\nif (1)\n1\n2\nend if\nend if')
     result = execute(program, limits=ExecutionLimits(max_output_values=2))
     assert result.ok
     assert result.values == [1, 2]

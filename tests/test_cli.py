@@ -10,20 +10,20 @@ if ("dog" > "cat")
 1
 else
 0
-end
+end if
 if (0)
 0
 elif (2)
 2
 else
 0
-end
+end if
 @chaos 500
 if ("dog" > "cat")
 1
 else
 0
-end
+end if
 """
 
 EXPECTED_OUTPUT = "42\n4\n626\n1\n2\n0\n"
@@ -121,7 +121,7 @@ def test_repl_state_persists_after_success(monkeypatch, capsys):
         monkeypatch,
         [
             "@chaos 500",
-            'if ("dog" > "cat")\n1\nelse\n0\nend',
+            'if ("dog" > "cat")\n1\nelse\n0\nend if',
         ],
     )
 
@@ -142,7 +142,7 @@ def test_repl_state_survives_failed_evaluation_unchanged(monkeypatch, capsys):
         [
             "@chaos 500",
             "#",
-            'if ("dog" > "cat")\n1\nelse\n0\nend',
+            'if ("dog" > "cat")\n1\nelse\n0\nend if',
         ],
     )
 

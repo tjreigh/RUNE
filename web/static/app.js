@@ -11,14 +11,14 @@ if ("dog" > "cat")
 1
 else
 0
-end
+end if
 
 @chaos 500
 if ("dog" > "cat")
 1
 else
 0
-end
+end if
 `,
   full: `answer = 40
 answer = answer + 2
@@ -30,20 +30,20 @@ if ("dog" > "cat")
 1
 else
 0
-end
+end if
 if (0)
 0
 elif (2)
 2
 else
 0
-end
+end if
 @chaos 500
 if ("dog" > "cat")
 1
 else
 0
-end
+end if
 `,
 };
 

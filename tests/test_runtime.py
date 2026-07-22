@@ -51,7 +51,7 @@ def test_grouping_and_unary_operations_work_in_assignment_and_condition():
         "answer\n"
         "else\n"
         "0\n"
-        "end"
+        "end if"
     )
 
     assert result.ok
@@ -213,7 +213,7 @@ def test_runtime_state_rejects_invalid_numeric_types():
 
 def test_supplied_state_affects_later_conditionals():
     state = RuntimeState(chaos_threshold=500)
-    result = evaluate('if ("dog" > "cat")\n1\nelse\n0\nend', state)
+    result = evaluate('if ("dog" > "cat")\n1\nelse\n0\nend if', state)
     assert result.values == [0]
 
 
@@ -308,7 +308,7 @@ def test_spec_acceptance_example():
     assert state.chaos_threshold == 1
 
     second = evaluate(
-        'if ("dog" > "cat")\n1\nelse\n0\nend',
+        'if ("dog" > "cat")\n1\nelse\n0\nend if',
         first.state,
     )
     assert second.values == [0]

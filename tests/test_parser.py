@@ -333,34 +333,34 @@ def test_chaos_pragma():
 
 
 def test_if_then_only():
-    node = _parse("if (1)\n2\nend")
+    node = _parse("if (1)\n2\nend if")
     assert isinstance(node, IfNode)
     assert node.else_block is None
     assert node.elif_clauses == []
     assert len(node.then_block) == 1
-    assert node.span == SourceSpan(Position(1, 1), Position(3, 4))
+    assert node.span == SourceSpan(Position(1, 1), Position(3, 7))
 
 
 def test_if_then_else():
-    node = _parse("if (1)\n2\nelse\n3\nend")
+    node = _parse("if (1)\n2\nelse\n3\nend if")
     assert node.else_block is not None
     assert len(node.else_block) == 1
 
 
 def test_if_then_multiple_elif():
-    node = _parse("if (0)\n1\nelif (0)\n2\nelif (1)\n3\nend")
+    node = _parse("if (0)\n1\nelif (0)\n2\nelif (1)\n3\nend if")
     assert len(node.elif_clauses) == 2
     assert node.else_block is None
 
 
 def test_if_then_elif_else():
-    node = _parse("if (0)\n1\nelif (0)\n2\nelse\n3\nend")
+    node = _parse("if (0)\n1\nelif (0)\n2\nelse\n3\nend if")
     assert len(node.elif_clauses) == 1
     assert node.else_block is not None
 
 
 def test_nested_if():
-    node = _parse("if (1)\nif (1)\n2\nend\nend")
+    node = _parse("if (1)\nif (1)\n2\nend if\nend if")
     assert isinstance(node, IfNode)
     assert isinstance(node.then_block[0], IfNode)
 
@@ -387,6 +387,24 @@ def test_missing_end_raises_parse_error():
     with pytest.raises(RuneParseError) as exc_info:
         _parse("if (1)\n1\n")
     assert exc_info.value.diagnostic.span == SourceSpan.at(Position(3, 1))
+
+
+def test_bare_end_requires_block_type():
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse("if (1)\n2\nend")
+
+    assert exc_info.value.diagnostic.message == "Expected 'if' after 'end'"
+    assert exc_info.value.diagnostic.span == SourceSpan.at(Position(3, 4))
+
+
+def test_mismatched_end_type_reports_the_unexpected_label():
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse("if (1)\n2\nend else")
+
+    assert exc_info.value.diagnostic.message == "Expected 'if' after 'end'"
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(3, 5), Position(3, 9)
+    )
 
 
 def test_unexpected_token_in_primary_raises_parse_error():
