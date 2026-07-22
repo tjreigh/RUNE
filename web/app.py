@@ -135,8 +135,8 @@ class MaxBodySizeMiddleware:
 
 class FixedWindowRateLimiter:
     """Thread-safe, monotonic-clock fixed-window limiter with periodic stale
-    entry cleanup and a hard bucket cap. Deliberately per-process; v0.4's
-    in-memory sessions also require one application process."""
+    entry cleanup and a hard bucket cap. Deliberately per-process; the
+    in-memory session store also requires one application process."""
 
     def __init__(
         self,

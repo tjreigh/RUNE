@@ -1,7 +1,7 @@
 # Deploying RUNE
 
 RUNE runs as one Uvicorn worker on `127.0.0.1:8000`, behind Caddy. The single
-worker is required while v0.4 sessions use process-local memory; adding workers
+worker is required while sessions use process-local memory; adding workers
 requires a shared session store first. These instructions assume an Ubuntu or
 Debian VPS with Python 3.12 or newer, Git, curl, Caddy, and systemd.
 

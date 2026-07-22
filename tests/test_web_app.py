@@ -385,13 +385,15 @@ def test_root_route_serves_html():
     assert response.headers["cache-control"] == "no-store"
     assert 'id="chaos-level">1<' in response.text
     assert '<option value="variables">Variables</option>' in response.text
+    assert '<option value="expressions">Expressions</option>' in response.text
+    assert '<option value="logic">Chaos-aware logic</option>' in response.text
     assert "answer = answer + 2" in response.text
     assert '<details id="inspector" class="inspector">' in response.text
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
     assert response.text.count('role="tabpanel"') == 3
     assert 'id="inspector-state">Chaos threshold: 1' in response.text
-    assert 'href="/static/style.css?v=0.4.0"' in response.text
-    assert 'src="/static/app.js?v=0.4.0"' in response.text
+    assert 'href="/static/style.css?v=0.5.0"' in response.text
+    assert 'src="/static/app.js?v=0.5.0"' in response.text
 
 
 def test_static_css_and_javascript_are_served_separately():
@@ -407,6 +409,8 @@ def test_static_css_and_javascript_are_served_separately():
     assert "javascript" in javascript.headers["content-type"]
     assert javascript.headers["cache-control"] == "no-cache"
     assert "payload.session_id = sessionId" in javascript.text
+    assert "0 and missing" in javascript.text
+    assert "(0b1010 << 2 | 0b0011) ^ 1" in javascript.text
     assert 'fetch("/reset"' in javascript.text
     assert "payload.state" not in javascript.text
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text

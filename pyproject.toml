@@ -1,6 +1,6 @@
 [project]
 name = "rune"
-version = "0.4.0"
+version = "0.5.0"
 description = "RUNE (Runtime Unicode Numeric Evaluation): a chaotic programming language"
 requires-python = ">=3.12"
 

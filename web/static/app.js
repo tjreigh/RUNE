@@ -4,6 +4,25 @@ const EXAMPLES = {
 score = animal + 1
 score
 `,
+  expressions: `0b101010
+(2 + 3) ** 2
+-17 / 5
+-17 % 5
+(0b1010 << 2 | 0b0011) ^ 1
+`,
+  logic: `@chaos 1
+0 and missing
+5 or missing
+not 0
+
+@chaos 10
+5 or 20
+if (5 or 20)
+99
+else
+0
+end if
+`,
   chaos: `"dog" + "cat"
 
 @chaos 1
@@ -23,9 +42,16 @@ end if
   full: `answer = 40
 answer = answer + 2
 answer
-2+2
+0b101010
+(2 + 3) ** 2
+-17 / 5
+-17 % 5
+(0b1010 << 2 | 0b0011) ^ 1
 "dog" + "cat"
 @chaos 1
+0 and missing
+5 or missing
+not 0
 if ("dog" > "cat")
 1
 else
@@ -38,9 +64,10 @@ elif (2)
 else
 0
 end if
-@chaos 500
-if ("dog" > "cat")
-1
+@chaos 10
+5 or 20
+if (5 or 20)
+99
 else
 0
 end if

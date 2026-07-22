@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Runs the local RUNE web REPL prototype (v0.3 -- see ROADMAP.md/
+# Runs the local RUNE web REPL (see ROADMAP.md/
 # ARCHITECTURE.md). Open http://127.0.0.1:8000/ once uvicorn prints
 # "Application startup complete."
 #

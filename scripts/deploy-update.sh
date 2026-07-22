@@ -10,7 +10,7 @@ set -u
 #
 # Usage:
 #   sudo scripts/deploy-update.sh                    # deploy origin/main
-#   sudo scripts/deploy-update.sh v0.4.0             # deploy a tag
+#   sudo scripts/deploy-update.sh release-tag        # deploy a tag
 #   sudo scripts/deploy-update.sh 0123456789abcdef    # deploy an exact SHA
 #
 # Configuration is available through environment variables:

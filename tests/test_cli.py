@@ -3,9 +3,16 @@ import rune
 TEST_RUNE_SOURCE = """answer = 40
 answer = answer + 2
 answer
-2+2
+0b101010
+(2 + 3) ** 2
+-17 / 5
+-17 % 5
+(0b1010 << 2 | 0b0011) ^ 1
 "dog" + "cat"
 @chaos 1
+0 and missing
+5 or missing
+not 0
 if ("dog" > "cat")
 1
 else
@@ -18,15 +25,16 @@ elif (2)
 else
 0
 end if
-@chaos 500
-if ("dog" > "cat")
-1
+@chaos 10
+5 or 20
+if (5 or 20)
+99
 else
 0
 end if
 """
 
-EXPECTED_OUTPUT = "42\n4\n626\n1\n2\n0\n"
+EXPECTED_OUTPUT = "42\n42\n25\n-3\n-2\n42\n626\n0\n1\n1\n1\n2\n1\n0\n"
 
 
 def test_run_file_golden_output(tmp_path, capsys):
