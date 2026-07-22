@@ -12,6 +12,8 @@ from ast_nodes import (
     NumberNode,
     UnaryOpNode,
     IfNode,
+    BreakNode,
+    ContinueNode,
 )
 from diagnostics import RuneInternalError, RuneRuntimeError
 from runtime_state import RuntimeState
@@ -301,6 +303,75 @@ def test_if_no_else_all_falsy_returns_empty_list():
 def test_nested_if_flattens():
     result = _run("@chaos 1\nif (1)\nif (1)\n99\nend if\nend if")
     assert result == [99]
+
+
+def test_while_uses_chaos_truthiness_and_reevaluates_its_condition():
+    interpreter = Interpreter()
+    ast = Parser(
+        Lexer(
+            "@chaos 3\ncount = 5\nwhile (count)\n"
+            "count\ncount = count - 1\nend while"
+        ).tokenize()
+    ).parse()
+
+    assert interpreter.interpret(ast) == [5, 4, 3]
+    assert interpreter.state.variables == {"count": 2}
+    assert interpreter.stats.loop_iterations == 3
+
+
+def test_while_can_execute_zero_iterations():
+    interpreter = Interpreter()
+    ast = Parser(
+        Lexer("count = 0\nwhile (count)\nmissing\nend while").tokenize()
+    ).parse()
+
+    assert interpreter.interpret(ast) == []
+    assert interpreter.stats.loop_iterations == 0
+
+
+def test_break_exits_nearest_loop_and_preserves_prior_output():
+    source = (
+        "outer = 2\n"
+        "while (outer)\n"
+        "inner = 2\n"
+        "while (inner)\n"
+        "inner\n"
+        "if (1)\n42\nbreak\nend if\n"
+        "99\n"
+        "end while\n"
+        "outer = outer - 1\n"
+        "end while"
+    )
+    interpreter = Interpreter()
+    ast = Parser(Lexer(source).tokenize()).parse()
+
+    assert interpreter.interpret(ast) == [2, 42, 2, 42]
+    assert interpreter.state.variables["outer"] == 0
+    assert interpreter.stats.loop_iterations == 4
+
+
+def test_continue_starts_next_iteration_and_preserves_prior_output():
+    source = (
+        "count = 2\n"
+        "while (count)\n"
+        "count\n"
+        "count = count - 1\n"
+        "continue\n"
+        "99\n"
+        "end while"
+    )
+    interpreter = Interpreter()
+    ast = Parser(Lexer(source).tokenize()).parse()
+
+    assert interpreter.interpret(ast) == [2, 1]
+    assert interpreter.state.variables == {"count": 0}
+    assert interpreter.stats.loop_iterations == 2
+
+
+@pytest.mark.parametrize("node", [BreakNode(), ContinueNode()])
+def test_loop_control_node_without_active_loop_is_internal_error(node):
+    with pytest.raises(RuneInternalError):
+        Interpreter().visit(node)
 
 
 def test_multi_statement_program_excludes_pragma_results():

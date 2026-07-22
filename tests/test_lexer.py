@@ -157,13 +157,18 @@ def test_string_token():
 
 
 def test_keyword_tokens():
-    tokens = _tokenize("chaos if elif else end and or not")
+    tokens = _tokenize(
+        "chaos if elif else while break continue end and or not"
+    )
     types = [t.type for t in tokens[:-1]]
     assert types == [
         TokenType.CHAOS,
         TokenType.IF,
         TokenType.ELIF,
         TokenType.ELSE,
+        TokenType.WHILE,
+        TokenType.BREAK,
+        TokenType.CONTINUE,
         TokenType.END,
         TokenType.AND,
         TokenType.OR,

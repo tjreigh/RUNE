@@ -326,6 +326,49 @@ def test_loop_iteration_accounting_charges_steps_before_entry():
     assert interpreter.stats.loop_iterations == 1
 
 
+def test_infinite_empty_while_exhausts_general_step_budget():
+    result = evaluate(
+        "while (1)\nend while",
+        limits=ExecutionLimits(max_steps=5),
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == "Step budget exceeded"
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(1, 8), Position(1, 9)
+    )
+    assert result.values == []
+    assert result.stats.loop_iterations == 2
+
+
+def test_loop_limit_failure_is_transactional_and_recovers_active_depth():
+    state = RuntimeState(variables={"kept": 7})
+    program = compile_source(
+        "count = 2\nwhile (count)\ncount\ncount = count - 1\nend while"
+    )
+    interpreter = Interpreter(
+        state=state,
+        limits=ExecutionLimits(max_output_values=1),
+    )
+
+    with pytest.raises(RuneLimitError):
+        interpreter.interpret(program.ast)
+
+    assert interpreter._active_loop_depth == 0
+
+    result = execute(
+        program,
+        state=state,
+        limits=ExecutionLimits(max_output_values=1),
+    )
+    assert not result.ok
+    assert result.state is state
+    assert result.state.variables == {"kept": 7}
+    assert result.events == []
+    assert result.values == []
+
+
 def test_variable_budget_rejects_new_name_and_rolls_back():
     state = RuntimeState(variables={"first": 1})
     result = evaluate(

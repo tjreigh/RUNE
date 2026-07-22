@@ -12,6 +12,9 @@ from ast_nodes import (
     GroupNode,
     UnaryOpNode,
     IfNode,
+    WhileNode,
+    BreakNode,
+    ContinueNode,
     ProgramNode,
 )
 from diagnostics import RuneParseError
@@ -51,12 +54,16 @@ class Parser:
     Parses tokens into an Abstract Syntax Tree (AST)
     Grammar:
         program   : statement* EOF
-        statement : pragma | if_stmt | assignment | expr
+        statement : pragma | if_stmt | while_stmt | break_stmt |
+                    continue_stmt | assignment | expr
         assignment: IDENTIFIER ASSIGN expr
         pragma    : PRAGMA CHAOS NUMBER
         if_stmt   : IF LPAREN expr RPAREN statement*
                     (ELIF LPAREN expr RPAREN statement*)*
                     (ELSE statement*)? END IF
+        while_stmt: WHILE LPAREN expr RPAREN statement* END WHILE
+        break_stmt: BREAK
+        continue_stmt: CONTINUE
         expr      : logical_or
         logical_or: logical_and (OR logical_and)*
         logical_and: logical_not (AND logical_not)*
@@ -78,6 +85,7 @@ class Parser:
         self.pos = 0
         self._expression_nesting = 0
         self._block_nesting = 0
+        self._loop_depth = 0
 
     def current_token(self):
         """Get the current token without consuming it"""
@@ -189,6 +197,12 @@ class Parser:
             return self.pragma()
         elif self.current_token().type == TokenType.IF:
             return self.if_stmt()
+        elif self.current_token().type == TokenType.WHILE:
+            return self.while_stmt()
+        elif self.current_token().type == TokenType.BREAK:
+            return self.break_stmt()
+        elif self.current_token().type == TokenType.CONTINUE:
+            return self.continue_stmt()
         elif (
             self.current_token().type == TokenType.IDENTIFIER
             and self.peek_token().type == TokenType.ASSIGN
@@ -256,6 +270,46 @@ class Parser:
             else_block,
             span=SourceSpan(start, end_label.span.end),
         )
+
+    def while_stmt(self):
+        """Parse a while/end while loop."""
+        while_token = self.current_token()
+        start = while_token.span.start
+        self.eat(TokenType.WHILE)
+        self.eat(TokenType.LPAREN)
+        condition = self.expr()
+        self.eat(TokenType.RPAREN)
+
+        self._loop_depth += 1
+        try:
+            body = self.parse_nested_block({TokenType.END}, while_token)
+        finally:
+            self._loop_depth -= 1
+
+        end_label = self.block_end(TokenType.WHILE)
+        return WhileNode(
+            condition,
+            body,
+            span=SourceSpan(start, end_label.span.end),
+        )
+
+    def break_stmt(self):
+        """Parse break only within a lexically enclosing loop."""
+        token = self.current_token()
+        if self._loop_depth == 0:
+            raise RuneParseError("'break' is only valid inside a loop", token.span)
+        self.eat(TokenType.BREAK)
+        return BreakNode(span=token.span)
+
+    def continue_stmt(self):
+        """Parse continue only within a lexically enclosing loop."""
+        token = self.current_token()
+        if self._loop_depth == 0:
+            raise RuneParseError(
+                "'continue' is only valid inside a loop", token.span
+            )
+        self.eat(TokenType.CONTINUE)
+        return ContinueNode(span=token.span)
 
     def expr(self):
         """Parse a complete expression, including short-circuiting logic."""

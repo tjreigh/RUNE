@@ -16,6 +16,9 @@ from ast_nodes import (
     GroupNode,
     UnaryOpNode,
     IfNode,
+    WhileNode,
+    BreakNode,
+    ContinueNode,
     ProgramNode,
 )
 from diagnostics import RuneParseError
@@ -363,6 +366,56 @@ def test_nested_if():
     node = _parse("if (1)\nif (1)\n2\nend if\nend if")
     assert isinstance(node, IfNode)
     assert isinstance(node.then_block[0], IfNode)
+
+
+def test_while_loop_has_typed_terminator_and_full_span():
+    node = _parse("while (count)\ncount\nend while")
+
+    assert isinstance(node, WhileNode)
+    assert isinstance(node.condition, VariableNode)
+    assert len(node.body) == 1
+    assert node.span == SourceSpan(Position(1, 1), Position(3, 10))
+
+
+def test_empty_while_body_is_allowed():
+    node = _parse("while (0)\nend while")
+
+    assert isinstance(node, WhileNode)
+    assert node.body == []
+
+
+def test_break_and_continue_parse_inside_nested_conditional_in_loop():
+    node = _parse(
+        "while (1)\nif (1)\nbreak\nelse\ncontinue\nend if\nend while"
+    )
+
+    conditional = node.body[0]
+    assert isinstance(conditional, IfNode)
+    assert isinstance(conditional.then_block[0], BreakNode)
+    assert isinstance(conditional.else_block[0], ContinueNode)
+
+
+@pytest.mark.parametrize("keyword", ["break", "continue"])
+def test_loop_control_outside_loop_is_structured_parse_error(keyword):
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse(keyword)
+
+    assert exc_info.value.diagnostic.message == (
+        f"'{keyword}' is only valid inside a loop"
+    )
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(1, 1), Position(1, len(keyword) + 1)
+    )
+
+
+def test_while_requires_matching_typed_terminator():
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse("while (1)\nend if")
+
+    assert exc_info.value.diagnostic.message == "Expected 'while' after 'end'"
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(2, 5), Position(2, 7)
+    )
 
 
 def _nested_if_source(depth):

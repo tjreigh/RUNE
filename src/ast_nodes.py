@@ -146,6 +146,35 @@ class IfNode(SpannedNode):
         )
 
 
+class WhileNode(SpannedNode):
+    """Represents a chaos-aware while loop."""
+    def __init__(self, condition, body, span=None):
+        self.condition = condition
+        self.body = body
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"While({self.condition}, body={self.body})"
+
+
+class BreakNode(SpannedNode):
+    """Exits the nearest enclosing loop."""
+    def __init__(self, span=None):
+        self._set_span(span)
+
+    def __repr__(self):
+        return "Break()"
+
+
+class ContinueNode(SpannedNode):
+    """Continues the nearest enclosing loop."""
+    def __init__(self, span=None):
+        self._set_span(span)
+
+    def __repr__(self):
+        return "Continue()"
+
+
 class ProgramNode(SpannedNode):
     """Represents a program with multiple statements"""
     def __init__(self, statements, span=None):

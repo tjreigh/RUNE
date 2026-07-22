@@ -12,6 +12,9 @@ from ast_nodes import (
     GroupNode,
     UnaryOpNode,
     IfNode,
+    WhileNode,
+    BreakNode,
+    ContinueNode,
     ProgramNode,
 )
 from diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
@@ -55,6 +58,7 @@ class Interpreter:
         self._event_count = 0
         self._loop_iterations = 0
         self._bindings = BindingEnvironment()
+        self._active_loop_depth = 0
 
     @property
     def stats(self):
@@ -249,6 +253,12 @@ class Interpreter:
                 return self.visit_unary(node)
             elif isinstance(node, IfNode):
                 return self.visit_if(node)
+            elif isinstance(node, WhileNode):
+                return self.visit_while(node)
+            elif isinstance(node, BreakNode):
+                return self.visit_break(node)
+            elif isinstance(node, ContinueNode):
+                return self.visit_continue(node)
             elif isinstance(node, ProgramNode):
                 return self.visit_program(node)
             else:
@@ -476,6 +486,37 @@ class Interpreter:
         if node.else_block is not None:
             return self._exec_block(node.else_block)
         return []
+
+    def visit_while(self, node):
+        """Execute a loop while its condition clears the chaos threshold."""
+        results = []
+        self._active_loop_depth += 1
+        try:
+            while self.is_chaos_truthy(self.visit(node.condition)):
+                self._begin_loop_iteration(node.condition.span)
+                try:
+                    results.extend(self._exec_block(node.body))
+                except _ContinueSignal as signal:
+                    results.extend(signal.values)
+                    continue
+                except _BreakSignal as signal:
+                    results.extend(signal.values)
+                    break
+        finally:
+            self._active_loop_depth -= 1
+        return results
+
+    def visit_break(self, node):
+        """Signal an exit from the nearest active loop."""
+        if self._active_loop_depth == 0:
+            raise RuneInternalError("Break outside active loop", node.span)
+        raise _BreakSignal()
+
+    def visit_continue(self, node):
+        """Signal the next iteration of the nearest active loop."""
+        if self._active_loop_depth == 0:
+            raise RuneInternalError("Continue outside active loop", node.span)
+        raise _ContinueSignal()
 
     def visit_program(self, node):
         """Execute a program with multiple statements"""
