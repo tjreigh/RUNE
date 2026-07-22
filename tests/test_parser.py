@@ -126,6 +126,78 @@ def test_unary_binds_more_tightly_than_multiplication():
     assert isinstance(node.left, UnaryOpNode)
 
 
+def test_division_and_modulo_share_left_associative_term_precedence():
+    node = _parse("20/3%2")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.MOD
+    assert isinstance(node.left, BinaryOpNode)
+    assert node.left.op.type == TokenType.DIV
+
+
+def test_power_is_right_associative():
+    node = _parse("2**3**2")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.POWER
+    assert isinstance(node.left, NumberNode)
+    assert isinstance(node.right, BinaryOpNode)
+    assert node.right.op.type == TokenType.POWER
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 8))
+    assert node.op.span == SourceSpan(Position(1, 2), Position(1, 4))
+
+
+def test_power_binds_tighter_than_unary_minus():
+    node = _parse("-2**2")
+
+    assert isinstance(node, UnaryOpNode)
+    assert isinstance(node.operand, BinaryOpNode)
+    assert node.operand.op.type == TokenType.POWER
+
+
+def test_power_accepts_unary_expression_on_the_right():
+    node = _parse("2**-3")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.POWER
+    assert isinstance(node.right, UnaryOpNode)
+
+
+def test_power_binds_tighter_than_multiplication():
+    node = _parse("2*3**2")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.MULT
+    assert isinstance(node.right, BinaryOpNode)
+    assert node.right.op.type == TokenType.POWER
+
+
+def test_parentheses_can_move_negation_inside_power_base():
+    node = _parse("(-2)**2")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.POWER
+    assert isinstance(node.left, GroupNode)
+    assert isinstance(node.left.expression, UnaryOpNode)
+
+
+def test_power_nesting_at_limit_is_accepted():
+    source = "**".join(["1"] * (MAX_EXPRESSION_NESTING + 1))
+
+    assert _parse(source) is not None
+
+
+def test_power_nesting_over_limit_is_structured_parse_error():
+    source = "**".join(["1"] * (MAX_EXPRESSION_NESTING + 2))
+
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse(source)
+
+    assert exc_info.value.diagnostic.message == (
+        f"Expression nesting exceeds the {MAX_EXPRESSION_NESTING}-level limit"
+    )
+
+
 def test_parenthesized_expression_can_be_assignment_value():
     node = _parse("answer = (40 + 2)")
 

@@ -59,6 +59,41 @@ def test_grouping_and_unary_operations_work_in_assignment_and_condition():
     assert result.state.variables == {"answer": -42}
 
 
+def test_division_modulo_and_power_work_in_stateful_program():
+    result = evaluate(
+        "base = 2\n"
+        "cube = base ** 3\n"
+        "quotient = -17 / 5\n"
+        "cube + quotient + (-17 % 5)"
+    )
+
+    assert result.ok
+    assert result.values == [3]
+    assert result.state.variables == {"base": 2, "cube": 8, "quotient": -3}
+
+
+@pytest.mark.parametrize(
+    "source,message,column_end",
+    [
+        ("kept = 1\n9 / 0", "Division by zero", 4),
+        ("kept = 1\n9 % 0", "Modulo by zero", 4),
+        ("kept = 1\n2 ** -1", "Negative exponent", 5),
+    ],
+)
+def test_arithmetic_runtime_failure_is_transactional(source, message, column_end):
+    state = RuntimeState(variables={"original": 7})
+    result = evaluate(source, state)
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.RUNTIME
+    assert result.diagnostics[0].message == message
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(2, 3), Position(2, column_end)
+    )
+    assert result.state is state
+    assert result.state.variables == {"original": 7}
+
+
 def test_grouping_preserves_inner_undefined_variable_span():
     result = evaluate("(missing)")
 

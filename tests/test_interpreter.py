@@ -5,7 +5,7 @@ from parser import Parser
 from interpreter import Interpreter
 from tokens import Token, TokenType
 from ast_nodes import BinaryOpNode, ComparisonNode, NumberNode, UnaryOpNode
-from diagnostics import RuneInternalError
+from diagnostics import RuneInternalError, RuneRuntimeError
 from runtime_state import RuntimeState
 
 
@@ -33,6 +33,70 @@ def test_subtraction():
 
 def test_multiplication():
     assert _run("4*3") == 12
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("7/3", 2),
+        ("-7/3", -2),
+        ("7/-3", -2),
+        ("-7/-3", 2),
+    ],
+)
+def test_integer_division_truncates_toward_zero(source, expected):
+    assert _run(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("7%3", 1),
+        ("-7%3", -1),
+        ("7%-3", 1),
+        ("-7%-3", -1),
+    ],
+)
+def test_remainder_follows_dividend_sign(source, expected):
+    assert _run(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,message",
+    [("1/0", "Division by zero"), ("1%0", "Modulo by zero")],
+)
+def test_zero_divisor_is_runtime_error(source, message):
+    with pytest.raises(RuneRuntimeError) as exc_info:
+        _run(source)
+
+    assert exc_info.value.diagnostic.message == message
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("2**10", 1024),
+        ("2**3**2", 512),
+        ("-2**2", -4),
+        ("(-2)**2", 4),
+        ("0**0", 1),
+        ("0**5", 0),
+        ("(-1)**999", -1),
+    ],
+)
+def test_integer_power_semantics(source, expected):
+    assert _run(source) == expected
+
+
+def test_negative_exponent_is_runtime_error():
+    with pytest.raises(RuneRuntimeError) as exc_info:
+        _run("2**-1")
+
+    assert exc_info.value.diagnostic.message == "Negative exponent"
+
+
+def test_multiplicative_operators_are_left_associative():
+    assert _run("20/3*2%5") == 2
 
 
 def test_parentheses_override_precedence():

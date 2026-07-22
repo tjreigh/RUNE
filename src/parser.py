@@ -32,8 +32,9 @@ class Parser:
         expr      : comparison
         comparison: arith_expr ((LT | GT | LTE | GTE | EQ | NEQ) arith_expr)*
         arith_expr: term ((PLUS | MINUS) term)*
-        term      : unary (MULT unary)*
-        unary     : (MINUS | BIT_NOT) unary | primary
+        term      : unary ((MULT | DIV | MOD) unary)*
+        unary     : (MINUS | BIT_NOT) unary | power
+        power     : primary (POWER unary)?
         primary   : NUMBER | STRING | IDENTIFIER | LPAREN expr RPAREN
     """
 
@@ -244,14 +245,15 @@ class Parser:
 
     def term(self):
         """
-        Parse term: unary (MULT unary)*
-        This handles multiplication (higher precedence than +/-)
+        Parse term: unary ((MULT | DIV | MOD) unary)*
+        These operators share precedence above addition and subtraction.
         """
         node = self.unary()
 
-        while self.current_token().type == TokenType.MULT:
+        term_operators = [TokenType.MULT, TokenType.DIV, TokenType.MOD]
+        while self.current_token().type in term_operators:
             op = self.current_token()
-            self.eat(TokenType.MULT)
+            self.eat(op.type)
             right = self.unary()
             node = BinaryOpNode(
                 node,
@@ -273,7 +275,22 @@ class Parser:
                 operand,
                 span=SourceSpan(token.span.start, operand.span.end),
             )
-        return self.primary()
+        return self.power()
+
+    def power(self):
+        """Parse right-associative power, which binds tighter than unary."""
+        node = self.primary()
+        if self.current_token().type == TokenType.POWER:
+            op = self.current_token()
+            self.eat(TokenType.POWER)
+            right = self.parse_nested(self.unary, op)
+            node = BinaryOpNode(
+                node,
+                op,
+                right,
+                span=SourceSpan.covering(node.span, right.span),
+            )
+        return node
 
     def primary(self):
         """

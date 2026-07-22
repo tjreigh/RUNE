@@ -88,6 +88,43 @@ class Interpreter:
                 )
         return self._check_integer(left * right, span)
 
+    def _checked_power(self, base, exponent, span):
+        """Reject invalid or definitely oversized powers before allocation.
+
+        For |base| >= 2, ``exponent * (bit_length(base) - 1) + 1`` is a
+        lower bound on the result's bit length. If that bound fits, the exact
+        result is less than twice the configured bit budget, so it is safe to
+        construct and check precisely.
+        """
+        if exponent < 0:
+            raise RuneRuntimeError("Negative exponent", span)
+        if abs(base) >= 2 and exponent:
+            minimum_result_bits = exponent * (base.bit_length() - 1) + 1
+            if minimum_result_bits > self.limits.max_integer_bits:
+                raise RuneLimitError(
+                    "Integer magnitude exceeds the "
+                    f"{self.limits.max_integer_bits}-bit limit",
+                    span,
+                )
+        return self._check_integer(base ** exponent, span)
+
+    @staticmethod
+    def _truncating_division(dividend, divisor, span):
+        """Divide integers without float conversion, truncating toward zero."""
+        if divisor == 0:
+            raise RuneRuntimeError("Division by zero", span)
+        quotient = abs(dividend) // abs(divisor)
+        if (dividend < 0) != (divisor < 0):
+            quotient = -quotient
+        return quotient
+
+    def _signed_remainder(self, dividend, divisor, span):
+        """Return the remainder paired with truncation-toward-zero division."""
+        if divisor == 0:
+            raise RuneRuntimeError("Modulo by zero", span)
+        quotient = self._truncating_division(dividend, divisor, span)
+        return dividend - quotient * divisor
+
     def visit(self, node):
         """Dispatch to appropriate visit method based on node type"""
         self._steps += 1
@@ -170,6 +207,18 @@ class Interpreter:
             return self._check_integer(left - right, node.op.span)
         elif node.op.type == TokenType.MULT:
             return self._checked_multiply(left, right, node.op.span)
+        elif node.op.type == TokenType.DIV:
+            return self._check_integer(
+                self._truncating_division(left, right, node.op.span),
+                node.op.span,
+            )
+        elif node.op.type == TokenType.MOD:
+            return self._check_integer(
+                self._signed_remainder(left, right, node.op.span),
+                node.op.span,
+            )
+        elif node.op.type == TokenType.POWER:
+            return self._checked_power(left, right, node.op.span)
         else:
             raise RuneInternalError(
                 f"Unknown operator: {node.op.type.value}", node.op.span

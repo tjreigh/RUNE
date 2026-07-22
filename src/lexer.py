@@ -126,8 +126,21 @@ class Lexer:
                 self.advance()
                 tokens.append(Token(TokenType.MINUS, '-', self.span_from(start)))
             elif self.text[self.pos] == '*':
+                if self.peek() == '*':
+                    self.advance()
+                    self.advance()
+                    tokens.append(
+                        Token(TokenType.POWER, '**', self.span_from(start))
+                    )
+                else:
+                    self.advance()
+                    tokens.append(Token(TokenType.MULT, '*', self.span_from(start)))
+            elif self.text[self.pos] == '/':
                 self.advance()
-                tokens.append(Token(TokenType.MULT, '*', self.span_from(start)))
+                tokens.append(Token(TokenType.DIV, '/', self.span_from(start)))
+            elif self.text[self.pos] == '%':
+                self.advance()
+                tokens.append(Token(TokenType.MOD, '%', self.span_from(start)))
             elif self.text[self.pos] == '~':
                 self.advance()
                 tokens.append(Token(TokenType.BIT_NOT, '~', self.span_from(start)))

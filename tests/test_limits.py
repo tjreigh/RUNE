@@ -62,6 +62,50 @@ def test_definitely_oversized_multiplication_is_not_attempted():
         interpreter._checked_multiply(ExplodingInt(256), ExplodingInt(256), None)
 
 
+def test_power_at_exact_bit_limit_succeeds():
+    result = evaluate("2 ** 7", limits=ExecutionLimits(max_integer_bits=8))
+
+    assert result.ok
+    assert result.values == [128]
+
+
+def test_oversized_power_is_rejected_at_operator():
+    result = evaluate("2 ** 8", limits=ExecutionLimits(max_integer_bits=8))
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == (
+        "Integer magnitude exceeds the 8-bit limit"
+    )
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(1, 3), Position(1, 5)
+    )
+
+
+def test_power_exact_check_rejects_inconclusive_preflight_boundary():
+    result = evaluate("3 ** 2", limits=ExecutionLimits(max_integer_bits=3))
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+
+
+def test_definitely_oversized_power_is_not_attempted():
+    class ExplodingInt(int):
+        def __pow__(self, exponent):
+            raise AssertionError("oversized power was allocated")
+
+    interpreter = Interpreter(limits=ExecutionLimits(max_integer_bits=8))
+    with pytest.raises(RuneLimitError):
+        interpreter._checked_power(ExplodingInt(256), 2, None)
+
+
+def test_astronomical_exponent_is_rejected_before_power():
+    result = evaluate("2 ** 999999999999999999999999999999999999")
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+
+
 def test_addition_over_integer_limit_is_rejected():
     result = evaluate("255 + 1", limits=ExecutionLimits(max_integer_bits=8))
 
