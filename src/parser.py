@@ -18,6 +18,7 @@ from diagnostics import RuneParseError
 from spans import SourceSpan
 
 MAX_EXPRESSION_NESTING = 100
+MAX_BLOCK_NESTING = 100
 
 _COMPARISON_OPERATORS = frozenset({
     TokenType.LT,
@@ -76,6 +77,7 @@ class Parser:
         self.tokens = tokens
         self.pos = 0
         self._expression_nesting = 0
+        self._block_nesting = 0
 
     def current_token(self):
         """Get the current token without consuming it"""
@@ -116,6 +118,19 @@ class Parser:
         """Skip any consecutive newline tokens"""
         while self.current_token().type == TokenType.NEWLINE:
             self.eat(TokenType.NEWLINE)
+
+    def parse_nested_block(self, terminators, opener):
+        """Parse one nested statement block within a fixed depth bound."""
+        self._block_nesting += 1
+        try:
+            if self._block_nesting > MAX_BLOCK_NESTING:
+                raise RuneParseError(
+                    f"Block nesting exceeds the {MAX_BLOCK_NESTING}-level limit",
+                    opener.span,
+                )
+            return self.block(terminators)
+        finally:
+            self._block_nesting -= 1
 
     def program(self):
         """
@@ -207,28 +222,31 @@ class Parser:
 
     def if_stmt(self):
         """Parse an if/elif/else/end if conditional."""
-        start = self.current_token().span.start
+        if_token = self.current_token()
+        start = if_token.span.start
         self.eat(TokenType.IF)
         self.eat(TokenType.LPAREN)
         condition = self.expr()
         self.eat(TokenType.RPAREN)
 
         branch_terminators = {TokenType.ELIF, TokenType.ELSE, TokenType.END}
-        then_block = self.block(branch_terminators)
+        then_block = self.parse_nested_block(branch_terminators, if_token)
         elif_clauses = []
 
         while self.current_token().type == TokenType.ELIF:
+            elif_token = self.current_token()
             self.eat(TokenType.ELIF)
             self.eat(TokenType.LPAREN)
             elif_condition = self.expr()
             self.eat(TokenType.RPAREN)
-            elif_block = self.block(branch_terminators)
+            elif_block = self.parse_nested_block(branch_terminators, elif_token)
             elif_clauses.append((elif_condition, elif_block))
 
         else_block = None
         if self.current_token().type == TokenType.ELSE:
+            else_token = self.current_token()
             self.eat(TokenType.ELSE)
-            else_block = self.block({TokenType.END})
+            else_block = self.parse_nested_block({TokenType.END}, else_token)
 
         end_label = self.block_end(TokenType.IF)
         return IfNode(

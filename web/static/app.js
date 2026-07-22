@@ -174,6 +174,8 @@ function formatStats(stats, evaluated) {
     `Steps: ${stats.steps}`,
     `Peak recursion depth: ${stats.peak_recursion_depth}`,
     `Output values: ${stats.output_values}`,
+    `Runtime events: ${stats.runtime_events}`,
+    `Loop iterations: ${stats.loop_iterations}`,
   ].join("\n");
 }
 

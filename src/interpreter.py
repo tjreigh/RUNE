@@ -17,6 +17,24 @@ from ast_nodes import (
 from diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
 from runtime_state import RuntimeState, RuntimeEvent
 from limits import ExecutionLimits, ExecutionStats
+from bindings import BindingEnvironment
+
+
+class _LoopControlSignal(Exception):
+    """Private non-local control flow carrying values already produced."""
+
+    def __init__(self):
+        super().__init__()
+        self.values = []
+
+
+class _BreakSignal(_LoopControlSignal):
+    pass
+
+
+class _ContinueSignal(_LoopControlSignal):
+    pass
+
 
 class Interpreter:
     """
@@ -34,6 +52,9 @@ class Interpreter:
         self._depth = 0
         self._peak_depth = 0
         self._output_count = 0
+        self._event_count = 0
+        self._loop_iterations = 0
+        self._bindings = BindingEnvironment()
 
     @property
     def stats(self):
@@ -42,7 +63,27 @@ class Interpreter:
             steps=self._steps,
             peak_recursion_depth=self._peak_depth,
             output_values=self._output_count,
+            runtime_events=self._event_count,
+            loop_iterations=self._loop_iterations,
         )
+
+    def _tick(self, span):
+        """Charge one deterministic unit of interpreter work."""
+        self._steps += 1
+        if self._steps > self.limits.max_steps:
+            raise RuneLimitError("Step budget exceeded", span)
+
+    def _begin_loop_iteration(self, span):
+        """Charge and record one iteration immediately before body entry."""
+        self._tick(span)
+        self._loop_iterations += 1
+
+    def _record_event(self, event):
+        """Append one event within the serialized event-count budget."""
+        if self._event_count + 1 > self.limits.max_events:
+            raise RuneLimitError("Event budget exceeded", event.span)
+        self.events.append(event)
+        self._event_count += 1
 
     def _emit(self, value, span):
         """Count one output value against the output budget. Unlike steps
@@ -72,6 +113,25 @@ class Interpreter:
             raise RuneLimitError("Variable budget exceeded", None)
         for value in variables.values():
             self._check_integer(value, None)
+
+    def _binding_scope(
+        self,
+        values=None,
+        captures_assignments=False,
+        span=None,
+    ):
+        """Create an ephemeral lexical frame within the variable budget."""
+        values = dict(values or {})
+        for value in values.values():
+            self._check_integer(value, span)
+        total_bindings = (
+            len(self.state.variables)
+            + self._bindings.binding_count
+            + len(values)
+        )
+        if total_bindings > self.limits.max_variables:
+            raise RuneLimitError("Variable budget exceeded", span)
+        return self._bindings.frame(values, captures_assignments)
 
     def _checked_multiply(self, left, right, span):
         """Reject a definitely oversized product before allocating it.
@@ -153,9 +213,7 @@ class Interpreter:
 
     def visit(self, node):
         """Dispatch to appropriate visit method based on node type"""
-        self._steps += 1
-        if self._steps > self.limits.max_steps:
-            raise RuneLimitError("Step budget exceeded", getattr(node, "span", None))
+        self._tick(getattr(node, "span", None))
 
         self._depth += 1
         if self._depth > self._peak_depth:
@@ -325,7 +383,7 @@ class Interpreter:
         a structured event instead of printing."""
         threshold = self._check_integer(node.threshold, node.span)
         self.state = self.state.with_chaos_threshold(threshold)
-        self.events.append(
+        self._record_event(
             RuntimeEvent(
                 kind="chaos_threshold_changed",
                 data={"threshold": threshold},
@@ -337,10 +395,11 @@ class Interpreter:
 
     def visit_variable(self, node):
         """Look up an already-collapsed numeric variable value."""
-        variables = self.state.variables
-        if node.name not in variables:
+        try:
+            value = self._bindings.resolve(node.name, self.state.variables)
+        except KeyError:
             raise RuneRuntimeError(f"Undefined variable '{node.name}'", node.span)
-        return self._check_integer(variables[node.name], node.span)
+        return self._check_integer(value, node.span)
 
     def visit_assignment(self, node):
         """Evaluate and commit one numeric value to the working state.
@@ -350,11 +409,25 @@ class Interpreter:
         """
         value = self.visit(node.value)
         self._check_integer(value, node.value.span)
-        variables = self.state.variables
-        if node.name not in variables and len(variables) >= self.limits.max_variables:
-            raise RuneLimitError("Variable budget exceeded", node.span)
-        self.state = self.state.with_variable(node.name, value)
-        self.events.append(
+        local_frame = self._bindings.assignment_target(node.name)
+        if local_frame is not None:
+            if (
+                node.name not in local_frame.values
+                and len(self.state.variables) + self._bindings.binding_count
+                >= self.limits.max_variables
+            ):
+                raise RuneLimitError("Variable budget exceeded", node.span)
+            local_frame.values[node.name] = value
+        else:
+            variables = self.state.variables
+            if (
+                node.name not in variables
+                and len(variables) + self._bindings.binding_count
+                >= self.limits.max_variables
+            ):
+                raise RuneLimitError("Variable budget exceeded", node.span)
+            self.state = self.state.with_variable(node.name, value)
+        self._record_event(
             RuntimeEvent(
                 kind="variable_assigned",
                 data={"name": node.name, "value": value},
@@ -378,7 +451,11 @@ class Interpreter:
         """
         results = []
         for stmt in statements:
-            result = self.visit(stmt)
+            try:
+                result = self.visit(stmt)
+            except _LoopControlSignal as signal:
+                signal.values[0:0] = results
+                raise
             if result is None:
                 continue
             if isinstance(result, list):

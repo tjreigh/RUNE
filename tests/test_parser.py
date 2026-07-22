@@ -1,7 +1,7 @@
 import pytest
 
 from lexer import Lexer
-from parser import Parser, MAX_EXPRESSION_NESTING
+from parser import Parser, MAX_BLOCK_NESTING, MAX_EXPRESSION_NESTING
 from tokens import TokenType
 from ast_nodes import (
     NumberNode,
@@ -363,6 +363,23 @@ def test_nested_if():
     node = _parse("if (1)\nif (1)\n2\nend if\nend if")
     assert isinstance(node, IfNode)
     assert isinstance(node.then_block[0], IfNode)
+
+
+def _nested_if_source(depth):
+    return ("if (1)\n" * depth) + "1\n" + ("end if\n" * depth)
+
+
+def test_block_nesting_at_limit_is_accepted():
+    assert _parse(_nested_if_source(MAX_BLOCK_NESTING)) is not None
+
+
+def test_block_nesting_over_limit_is_structured_parse_error():
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse(_nested_if_source(MAX_BLOCK_NESTING + 1))
+
+    assert exc_info.value.diagnostic.message == (
+        f"Block nesting exceeds the {MAX_BLOCK_NESTING}-level limit"
+    )
 
 
 def test_multi_statement_program_wraps_in_program_node():

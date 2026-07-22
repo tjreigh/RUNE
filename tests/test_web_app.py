@@ -416,6 +416,8 @@ def test_static_css_and_javascript_are_served_separately():
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
     assert "heldEvents = result.events ?? []" in javascript.text
     assert "heldStats = result.stats ?? null" in javascript.text
+    assert "Runtime events: ${stats.runtime_events}" in javascript.text
+    assert "Loop iterations: ${stats.loop_iterations}" in javascript.text
     assert "formatRequestDetail(body.detail ?? body)" in javascript.text
     assert "[object Object]" not in javascript.text
     assert "sessionId" not in javascript.text.split("function formatState", 1)[1].split(

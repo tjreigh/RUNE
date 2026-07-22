@@ -5,7 +5,7 @@ import pytest
 
 import rune
 from runtime import compile_source, execute, evaluate, RuntimeState
-from limits import ExecutionLimits
+from limits import ExecutionLimits, ExecutionStats
 from interpreter import Interpreter
 from diagnostics import DiagnosticKind, RuneLimitError
 from spans import Position, SourceSpan
@@ -27,9 +27,18 @@ def test_execution_limits_rejects_invalid_values():
     with pytest.raises(ValueError):
         ExecutionLimits(max_output_values=0)
     with pytest.raises(ValueError):
+        ExecutionLimits(max_events=0)
+    with pytest.raises(ValueError):
         ExecutionLimits(max_variables=0)
     with pytest.raises(ValueError):
         ExecutionLimits(max_integer_bits=0)
+
+
+def test_new_stats_fields_default_to_zero_for_existing_callers():
+    stats = ExecutionStats(steps=1, peak_recursion_depth=2, output_values=3)
+
+    assert stats.runtime_events == 0
+    assert stats.loop_iterations == 0
 
 
 def test_integer_at_exact_bit_limit_succeeds():
@@ -273,6 +282,48 @@ def test_pragmas_do_not_consume_output_budget():
     assert result.ok
     assert result.values == []
     assert result.stats.output_values == 0
+
+
+def test_event_budget_exact_limit_succeeds():
+    result = evaluate(
+        "@chaos 1\n@chaos 2",
+        limits=ExecutionLimits(max_events=2),
+    )
+
+    assert result.ok
+    assert len(result.events) == 2
+    assert result.stats.runtime_events == 2
+
+
+def test_event_budget_one_over_fails_transactionally():
+    state = RuntimeState(chaos_threshold=7)
+    result = evaluate(
+        "@chaos 1\n@chaos 2",
+        state,
+        limits=ExecutionLimits(max_events=1),
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == "Event budget exceeded"
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(2, 1), Position(2, 9)
+    )
+    assert result.state is state
+    assert result.events == []
+    assert result.stats.runtime_events == 1
+
+
+def test_loop_iteration_accounting_charges_steps_before_entry():
+    interpreter = Interpreter(limits=ExecutionLimits(max_steps=1))
+
+    interpreter._begin_loop_iteration(None)
+
+    assert interpreter.stats.steps == 1
+    assert interpreter.stats.loop_iterations == 1
+    with pytest.raises(RuneLimitError, match="Step budget exceeded"):
+        interpreter._begin_loop_iteration(None)
+    assert interpreter.stats.loop_iterations == 1
 
 
 def test_variable_budget_rejects_new_name_and_rolls_back():

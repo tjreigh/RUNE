@@ -2,7 +2,7 @@ import pytest
 
 from lexer import Lexer
 from parser import Parser
-from interpreter import Interpreter
+from interpreter import Interpreter, _BreakSignal, _ContinueSignal
 from tokens import Token, TokenType
 from ast_nodes import (
     BinaryOpNode,
@@ -11,6 +11,7 @@ from ast_nodes import (
     LogicalNotNode,
     NumberNode,
     UnaryOpNode,
+    IfNode,
 )
 from diagnostics import RuneInternalError, RuneRuntimeError
 from runtime_state import RuntimeState
@@ -348,3 +349,23 @@ def test_unknown_logical_not_operator_raises_internal_error():
     node = LogicalNotNode(bad_op, NumberNode(1))
     with pytest.raises(RuneInternalError):
         Interpreter().visit_logical_not(node)
+
+
+@pytest.mark.parametrize("signal_type", [_BreakSignal, _ContinueSignal])
+def test_loop_control_signal_preserves_output_from_nested_blocks(signal_type):
+    marker = object()
+
+    class SignalingInterpreter(Interpreter):
+        def visit(self, node):
+            if node is marker:
+                raise signal_type()
+            return super().visit(node)
+
+    interpreter = SignalingInterpreter()
+    nested_if = IfNode(NumberNode(1), [NumberNode(2), marker])
+
+    with pytest.raises(signal_type) as exc_info:
+        interpreter._exec_block([NumberNode(1), nested_if])
+
+    assert exc_info.value.values == [1, 2]
+    assert interpreter.stats.output_values == 2
