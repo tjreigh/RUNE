@@ -17,6 +17,7 @@ from ast_nodes import (
 )
 from diagnostics import RuneInternalError, RuneRuntimeError
 from runtime_state import RuntimeState
+from spans import Position, SourceSpan
 
 
 def _run(src):
@@ -366,6 +367,108 @@ def test_continue_starts_next_iteration_and_preserves_prior_output():
     assert interpreter.interpret(ast) == [2, 1]
     assert interpreter.state.variables == {"count": 0}
     assert interpreter.stats.loop_iterations == 2
+
+
+def test_for_is_inclusive_with_default_and_explicit_steps():
+    assert _run("for i from 1 to 3\ni\nend for") == [1, 2, 3]
+    assert _run("for i from 1 to 6 step 2\ni\nend for") == [1, 3, 5]
+    assert _run("for i from 3 to 1 step -1\ni\nend for") == [3, 2, 1]
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "for i from 3 to 1",
+        "for i from 1 to 3 step -1",
+    ],
+)
+def test_for_with_mismatched_direction_executes_zero_iterations(header):
+    assert _run(f"{header}\nmissing\nend for") == []
+
+
+@pytest.mark.parametrize("step", [None, 2, -2])
+def test_for_executes_once_when_bounds_are_equal(step):
+    suffix = "" if step is None else f" step {step}"
+
+    assert _run(f"for i from 2 to 2{suffix}\ni\nend for") == [2]
+
+
+def test_for_evaluates_bounds_before_shadowing_and_restores_global_counter():
+    interpreter = Interpreter(state=RuntimeState(variables={"i": 10}))
+    ast = Parser(
+        Lexer("for i from i to i + 2\ni\nend for\ni").tokenize()
+    ).parse()
+
+    assert interpreter.interpret(ast) == [10, 11, 12, 10]
+    assert interpreter.state.variables == {"i": 10}
+
+
+def test_for_counter_disappears_when_no_global_binding_exists():
+    interpreter = Interpreter()
+    ast = Parser(Lexer("for i from 1 to 2\ni\nend for").tokenize()).parse()
+
+    assert interpreter.interpret(ast) == [1, 2]
+    assert interpreter.state.variables == {}
+    with pytest.raises(RuneRuntimeError, match="Undefined variable 'i'"):
+        interpreter.visit(Parser(Lexer("i").tokenize()).parse())
+
+
+def test_for_overwrites_body_assignment_on_the_next_iteration():
+    source = "for i from 1 to 2\ni\ni = 99\ni\nend for"
+
+    assert _run(source) == [1, 99, 2, 99]
+
+
+def test_for_evaluates_stop_once_before_iteration():
+    source = (
+        "stop = 3\n"
+        "for i from 1 to stop\n"
+        "i\n"
+        "stop = 1\n"
+        "end for"
+    )
+
+    assert _run(source) == [1, 2, 3]
+
+
+def test_nested_for_counters_shadow_and_restore_each_other():
+    source = (
+        "for i from 1 to 2\n"
+        "i\n"
+        "for i from i to i + 1\n"
+        "i\n"
+        "end for\n"
+        "i\n"
+        "end for"
+    )
+
+    assert _run(source) == [1, 1, 2, 1, 2, 2, 3, 2]
+
+
+def test_for_break_and_continue_preserve_output_and_progress_counter():
+    source = (
+        "for i from 1 to 5\n"
+        "i\n"
+        "if (i == 2)\ncontinue\nend if\n"
+        "if (i == 3)\nbreak\nend if\n"
+        "99\n"
+        "end for"
+    )
+    interpreter = Interpreter()
+    ast = Parser(Lexer(source).tokenize()).parse()
+
+    assert interpreter.interpret(ast) == [1, 99, 2, 3]
+    assert interpreter.stats.loop_iterations == 3
+
+
+def test_for_zero_step_is_runtime_error_at_step_expression():
+    with pytest.raises(RuneRuntimeError) as exc_info:
+        _run("for i from 1 to 3 step 0\ni\nend for")
+
+    assert exc_info.value.diagnostic.message == "For loop step cannot be zero"
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(1, 24), Position(1, 25)
+    )
 
 
 @pytest.mark.parametrize("node", [BreakNode(), ContinueNode()])

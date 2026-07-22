@@ -13,6 +13,7 @@ from ast_nodes import (
     UnaryOpNode,
     IfNode,
     WhileNode,
+    ForNode,
     BreakNode,
     ContinueNode,
     ProgramNode,
@@ -255,6 +256,8 @@ class Interpreter:
                 return self.visit_if(node)
             elif isinstance(node, WhileNode):
                 return self.visit_while(node)
+            elif isinstance(node, ForNode):
+                return self.visit_for(node)
             elif isinstance(node, BreakNode):
                 return self.visit_break(node)
             elif isinstance(node, ContinueNode):
@@ -494,17 +497,50 @@ class Interpreter:
         try:
             while self.is_chaos_truthy(self.visit(node.condition)):
                 self._begin_loop_iteration(node.condition.span)
-                try:
-                    results.extend(self._exec_block(node.body))
-                except _ContinueSignal as signal:
-                    results.extend(signal.values)
-                    continue
-                except _BreakSignal as signal:
-                    results.extend(signal.values)
+                values, should_break = self._exec_loop_body(node.body)
+                results.extend(values)
+                if should_break:
                     break
         finally:
             self._active_loop_depth -= 1
         return results
+
+    def visit_for(self, node):
+        """Execute an inclusive counted loop with a loop-local counter."""
+        start = self.visit(node.start)
+        stop = self.visit(node.stop)
+        step = self.visit(node.step) if node.step is not None else 1
+        if step == 0:
+            raise RuneRuntimeError("For loop step cannot be zero", node.step.span)
+
+        results = []
+        current = start
+        counter_span = node.counter_span or node.span
+        with self._binding_scope({node.counter: start}, span=counter_span) as frame:
+            self._active_loop_depth += 1
+            try:
+                while (step > 0 and current <= stop) or (
+                    step < 0 and current >= stop
+                ):
+                    self._begin_loop_iteration(counter_span)
+                    frame.values[node.counter] = current
+                    values, should_break = self._exec_loop_body(node.body)
+                    results.extend(values)
+                    if should_break:
+                        break
+                    current += step
+            finally:
+                self._active_loop_depth -= 1
+        return results
+
+    def _exec_loop_body(self, statements):
+        """Execute one loop body, preserving output across loop control."""
+        try:
+            return self._exec_block(statements), False
+        except _ContinueSignal as signal:
+            return signal.values, False
+        except _BreakSignal as signal:
+            return signal.values, True
 
     def visit_break(self, node):
         """Signal an exit from the nearest active loop."""

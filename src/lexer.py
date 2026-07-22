@@ -100,6 +100,14 @@ class Lexer:
                     tokens.append(Token(TokenType.ELSE, ident, self.span_from(start)))
                 elif ident == "while":
                     tokens.append(Token(TokenType.WHILE, ident, self.span_from(start)))
+                elif ident == "for":
+                    tokens.append(Token(TokenType.FOR, ident, self.span_from(start)))
+                elif ident == "from":
+                    tokens.append(Token(TokenType.FROM, ident, self.span_from(start)))
+                elif ident == "to":
+                    tokens.append(Token(TokenType.TO, ident, self.span_from(start)))
+                elif ident == "step":
+                    tokens.append(Token(TokenType.STEP, ident, self.span_from(start)))
                 elif ident == "break":
                     tokens.append(Token(TokenType.BREAK, ident, self.span_from(start)))
                 elif ident == "continue":

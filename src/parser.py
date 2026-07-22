@@ -13,6 +13,7 @@ from ast_nodes import (
     UnaryOpNode,
     IfNode,
     WhileNode,
+    ForNode,
     BreakNode,
     ContinueNode,
     ProgramNode,
@@ -54,7 +55,7 @@ class Parser:
     Parses tokens into an Abstract Syntax Tree (AST)
     Grammar:
         program   : statement* EOF
-        statement : pragma | if_stmt | while_stmt | break_stmt |
+        statement : pragma | if_stmt | while_stmt | for_stmt | break_stmt |
                     continue_stmt | assignment | expr
         assignment: IDENTIFIER ASSIGN expr
         pragma    : PRAGMA CHAOS NUMBER
@@ -62,6 +63,8 @@ class Parser:
                     (ELIF LPAREN expr RPAREN statement*)*
                     (ELSE statement*)? END IF
         while_stmt: WHILE LPAREN expr RPAREN statement* END WHILE
+        for_stmt  : FOR IDENTIFIER FROM expr TO expr (STEP expr)?
+                    statement* END FOR
         break_stmt: BREAK
         continue_stmt: CONTINUE
         expr      : logical_or
@@ -199,6 +202,8 @@ class Parser:
             return self.if_stmt()
         elif self.current_token().type == TokenType.WHILE:
             return self.while_stmt()
+        elif self.current_token().type == TokenType.FOR:
+            return self.for_stmt()
         elif self.current_token().type == TokenType.BREAK:
             return self.break_stmt()
         elif self.current_token().type == TokenType.CONTINUE:
@@ -290,6 +295,40 @@ class Parser:
         return WhileNode(
             condition,
             body,
+            span=SourceSpan(start, end_label.span.end),
+        )
+
+    def for_stmt(self):
+        """Parse an inclusive counted for/end for loop."""
+        for_token = self.current_token()
+        start = for_token.span.start
+        self.eat(TokenType.FOR)
+        counter_token = self.current_token()
+        self.eat(TokenType.IDENTIFIER)
+        self.eat(TokenType.FROM)
+        start_value = self.expr()
+        self.eat(TokenType.TO)
+        stop_value = self.expr()
+
+        step_value = None
+        if self.current_token().type == TokenType.STEP:
+            self.eat(TokenType.STEP)
+            step_value = self.expr()
+
+        self._loop_depth += 1
+        try:
+            body = self.parse_nested_block({TokenType.END}, for_token)
+        finally:
+            self._loop_depth -= 1
+
+        end_label = self.block_end(TokenType.FOR)
+        return ForNode(
+            counter_token.value,
+            start_value,
+            stop_value,
+            body,
+            step=step_value,
+            counter_span=counter_token.span,
             span=SourceSpan(start, end_label.span.end),
         )
 

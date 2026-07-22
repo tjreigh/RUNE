@@ -17,6 +17,7 @@ from ast_nodes import (
     UnaryOpNode,
     IfNode,
     WhileNode,
+    ForNode,
     BreakNode,
     ContinueNode,
     ProgramNode,
@@ -415,6 +416,46 @@ def test_while_requires_matching_typed_terminator():
     assert exc_info.value.diagnostic.message == "Expected 'while' after 'end'"
     assert exc_info.value.diagnostic.span == SourceSpan(
         Position(2, 5), Position(2, 7)
+    )
+
+
+def test_for_loop_is_inclusive_and_has_full_span():
+    node = _parse("for i from 1 to 3\ni\nend for")
+
+    assert isinstance(node, ForNode)
+    assert node.counter == "i"
+    assert node.start.value == 1
+    assert node.stop.value == 3
+    assert node.step is None
+    assert len(node.body) == 1
+    assert node.counter_span == SourceSpan(
+        Position(1, 5), Position(1, 6)
+    )
+    assert node.span == SourceSpan(Position(1, 1), Position(3, 8))
+
+
+def test_for_loop_parses_optional_step_expression():
+    node = _parse("for i from 5 to 1 step -2\ni\nend for")
+
+    assert isinstance(node.step, UnaryOpNode)
+    assert node.step.op.type == TokenType.MINUS
+    assert node.step.operand.value == 2
+
+
+def test_for_body_allows_loop_control():
+    node = _parse("for i from 1 to 3\ncontinue\nbreak\nend for")
+
+    assert isinstance(node.body[0], ContinueNode)
+    assert isinstance(node.body[1], BreakNode)
+
+
+def test_for_requires_matching_typed_terminator():
+    with pytest.raises(RuneParseError) as exc_info:
+        _parse("for i from 1 to 3\nend while")
+
+    assert exc_info.value.diagnostic.message == "Expected 'for' after 'end'"
+    assert exc_info.value.diagnostic.span == SourceSpan(
+        Position(2, 5), Position(2, 10)
     )
 
 

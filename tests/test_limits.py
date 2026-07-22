@@ -369,6 +369,44 @@ def test_loop_limit_failure_is_transactional_and_recovers_active_depth():
     assert result.values == []
 
 
+def test_large_for_loop_exhausts_general_step_budget():
+    result = evaluate(
+        "for i from 1 to 100\nend for",
+        limits=ExecutionLimits(max_steps=5),
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == "Step budget exceeded"
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(1, 5), Position(1, 6)
+    )
+    assert result.stats.loop_iterations == 2
+
+
+def test_for_counter_obeys_variable_budget_and_scope_recovers():
+    state = RuntimeState(variables={"kept": 7})
+    program = compile_source("for i from 1 to 0\nend for")
+    interpreter = Interpreter(
+        state=state,
+        limits=ExecutionLimits(max_variables=1),
+    )
+
+    with pytest.raises(RuneLimitError, match="Variable budget exceeded"):
+        interpreter.interpret(program.ast)
+
+    assert interpreter._bindings.depth == 0
+
+    result = execute(
+        program,
+        state=state,
+        limits=ExecutionLimits(max_variables=1),
+    )
+    assert not result.ok
+    assert result.state is state
+    assert result.state.variables == {"kept": 7}
+
+
 def test_variable_budget_rejects_new_name_and_rolls_back():
     state = RuntimeState(variables={"first": 1})
     result = evaluate(

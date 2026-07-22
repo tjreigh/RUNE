@@ -157,6 +157,34 @@ class WhileNode(SpannedNode):
         return f"While({self.condition}, body={self.body})"
 
 
+class ForNode(SpannedNode):
+    """Represents an inclusive counted loop with a lexical counter."""
+    def __init__(
+        self,
+        counter,
+        start,
+        stop,
+        body,
+        step=None,
+        counter_span=None,
+        span=None,
+    ):
+        self.counter = counter
+        self.start = start
+        self.stop = stop
+        self.body = body
+        self.step = step
+        self.counter_span = counter_span
+        self._set_span(span)
+
+    def __repr__(self):
+        step = f", step={self.step}" if self.step is not None else ""
+        return (
+            f"For({self.counter}, {self.start} to {self.stop}{step}, "
+            f"body={self.body})"
+        )
+
+
 class BreakNode(SpannedNode):
     """Exits the nearest enclosing loop."""
     def __init__(self, span=None):
