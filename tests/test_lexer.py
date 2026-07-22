@@ -169,7 +169,7 @@ def test_keyword_tokens():
 
 
 def test_operator_and_structural_tokens():
-    tokens = _tokenize("+-*/%**~()@")
+    tokens = _tokenize("+-*/%**~&|^<<>>()@")
     types = [t.type for t in tokens[:-1]]
     assert types == [
         TokenType.PLUS,
@@ -179,6 +179,11 @@ def test_operator_and_structural_tokens():
         TokenType.MOD,
         TokenType.POWER,
         TokenType.BIT_NOT,
+        TokenType.BIT_AND,
+        TokenType.BIT_OR,
+        TokenType.BIT_XOR,
+        TokenType.SHIFT_LEFT,
+        TokenType.SHIFT_RIGHT,
         TokenType.LPAREN,
         TokenType.RPAREN,
         TokenType.PRAGMA,
@@ -223,6 +228,19 @@ def test_power_and_multiplication_use_longest_match():
     ]
     assert tokens[1].span == SourceSpan(Position(1, 2), Position(1, 4))
     assert tokens[2].span == SourceSpan(Position(1, 4), Position(1, 5))
+
+
+def test_shift_and_comparison_operators_use_longest_match():
+    tokens = _tokenize("<< <= < >> >= >")
+
+    assert [token.type for token in tokens[:-1]] == [
+        TokenType.SHIFT_LEFT,
+        TokenType.LTE,
+        TokenType.LT,
+        TokenType.SHIFT_RIGHT,
+        TokenType.GTE,
+        TokenType.GT,
+    ]
 
 
 def test_span_tracking_multiline():

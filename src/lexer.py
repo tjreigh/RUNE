@@ -144,10 +144,25 @@ class Lexer:
             elif self.text[self.pos] == '~':
                 self.advance()
                 tokens.append(Token(TokenType.BIT_NOT, '~', self.span_from(start)))
+            elif self.text[self.pos] == '&':
+                self.advance()
+                tokens.append(Token(TokenType.BIT_AND, '&', self.span_from(start)))
+            elif self.text[self.pos] == '|':
+                self.advance()
+                tokens.append(Token(TokenType.BIT_OR, '|', self.span_from(start)))
+            elif self.text[self.pos] == '^':
+                self.advance()
+                tokens.append(Token(TokenType.BIT_XOR, '^', self.span_from(start)))
 
             # Comparison operators (with lookahead for multi-char)
             elif self.text[self.pos] == '<':
-                if self.peek() == '=':
+                if self.peek() == '<':
+                    self.advance()
+                    self.advance()
+                    tokens.append(
+                        Token(TokenType.SHIFT_LEFT, '<<', self.span_from(start))
+                    )
+                elif self.peek() == '=':
                     self.advance()
                     self.advance()
                     tokens.append(Token(TokenType.LTE, '<=', self.span_from(start)))
@@ -155,7 +170,13 @@ class Lexer:
                     self.advance()
                     tokens.append(Token(TokenType.LT, '<', self.span_from(start)))
             elif self.text[self.pos] == '>':
-                if self.peek() == '=':
+                if self.peek() == '>':
+                    self.advance()
+                    self.advance()
+                    tokens.append(
+                        Token(TokenType.SHIFT_RIGHT, '>>', self.span_from(start))
+                    )
+                elif self.peek() == '=':
                     self.advance()
                     self.advance()
                     tokens.append(Token(TokenType.GTE, '>=', self.span_from(start)))

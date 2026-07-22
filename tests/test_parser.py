@@ -181,6 +181,45 @@ def test_parentheses_can_move_negation_inside_power_base():
     assert isinstance(node.left.expression, UnaryOpNode)
 
 
+def test_bitwise_precedence_is_or_then_xor_then_and():
+    node = _parse("1|2^3&4")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.BIT_OR
+    assert isinstance(node.right, BinaryOpNode)
+    assert node.right.op.type == TokenType.BIT_XOR
+    assert isinstance(node.right.right, BinaryOpNode)
+    assert node.right.right.op.type == TokenType.BIT_AND
+
+
+def test_shift_binds_above_bitwise_and_below_addition():
+    node = _parse("1&2<<3+4")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.BIT_AND
+    assert isinstance(node.right, BinaryOpNode)
+    assert node.right.op.type == TokenType.SHIFT_LEFT
+    assert isinstance(node.right.right, BinaryOpNode)
+    assert node.right.right.op.type == TokenType.PLUS
+
+
+def test_shifts_are_left_associative():
+    node = _parse("16>>2<<1")
+
+    assert isinstance(node, BinaryOpNode)
+    assert node.op.type == TokenType.SHIFT_LEFT
+    assert isinstance(node.left, BinaryOpNode)
+    assert node.left.op.type == TokenType.SHIFT_RIGHT
+
+
+def test_comparison_binds_below_bitwise_operators():
+    node = _parse("1|2==3")
+
+    assert isinstance(node, ComparisonNode)
+    assert isinstance(node.left, BinaryOpNode)
+    assert node.left.op.type == TokenType.BIT_OR
+
+
 def test_power_nesting_at_limit_is_accepted():
     source = "**".join(["1"] * (MAX_EXPRESSION_NESTING + 1))
 

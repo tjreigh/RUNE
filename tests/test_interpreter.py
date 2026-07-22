@@ -99,6 +99,49 @@ def test_multiplicative_operators_are_left_associative():
     assert _run("20/3*2%5") == 2
 
 
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("0b1100 & 0b1010", 0b1000),
+        ("0b1100 | 0b1010", 0b1110),
+        ("0b1100 ^ 0b1010", 0b0110),
+        ("-5 & 3", -5 & 3),
+        ("-5 | 3", -5 | 3),
+        ("-5 ^ 3", -5 ^ 3),
+    ],
+)
+def test_bitwise_operators_use_infinite_twos_complement(source, expected):
+    assert _run(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("3 << 4", 48),
+        ("-3 << 2", -12),
+        ("16 >> 2", 4),
+        ("-9 >> 2", -3),
+        ("5 >> 999999999999999999999999", 0),
+        ("-5 >> 999999999999999999999999", -1),
+        ("0 << 999999999999999999999999", 0),
+    ],
+)
+def test_shift_semantics(source, expected):
+    assert _run(source) == expected
+
+
+@pytest.mark.parametrize("source", ["1 << -1", "1 >> -1"])
+def test_negative_shift_count_is_runtime_error(source):
+    with pytest.raises(RuneRuntimeError) as exc_info:
+        _run(source)
+
+    assert exc_info.value.diagnostic.message == "Negative shift count"
+
+
+def test_bitwise_and_shift_precedence():
+    assert _run("1 | 2 ^ 3 & 7 << 1 + 1") == 3
+
+
 def test_parentheses_override_precedence():
     assert _run("(2+3)*4") == 20
 

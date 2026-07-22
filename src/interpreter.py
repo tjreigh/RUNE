@@ -125,6 +125,30 @@ class Interpreter:
         quotient = self._truncating_division(dividend, divisor, span)
         return dividend - quotient * divisor
 
+    def _checked_left_shift(self, value, count, span):
+        """Reject invalid or oversized left shifts before allocation."""
+        if count < 0:
+            raise RuneRuntimeError("Negative shift count", span)
+        if value == 0:
+            return 0
+        result_bits = value.bit_length() + count
+        if result_bits > self.limits.max_integer_bits:
+            raise RuneLimitError(
+                "Integer magnitude exceeds the "
+                f"{self.limits.max_integer_bits}-bit limit",
+                span,
+            )
+        return self._check_integer(value << count, span)
+
+    @staticmethod
+    def _bounded_right_shift(value, count, span):
+        """Avoid passing an astronomically large count into CPython's shift."""
+        if count < 0:
+            raise RuneRuntimeError("Negative shift count", span)
+        if count >= value.bit_length():
+            return -1 if value < 0 else 0
+        return value >> count
+
     def visit(self, node):
         """Dispatch to appropriate visit method based on node type"""
         self._steps += 1
@@ -219,6 +243,19 @@ class Interpreter:
             )
         elif node.op.type == TokenType.POWER:
             return self._checked_power(left, right, node.op.span)
+        elif node.op.type == TokenType.BIT_AND:
+            return self._check_integer(left & right, node.op.span)
+        elif node.op.type == TokenType.BIT_OR:
+            return self._check_integer(left | right, node.op.span)
+        elif node.op.type == TokenType.BIT_XOR:
+            return self._check_integer(left ^ right, node.op.span)
+        elif node.op.type == TokenType.SHIFT_LEFT:
+            return self._checked_left_shift(left, right, node.op.span)
+        elif node.op.type == TokenType.SHIFT_RIGHT:
+            return self._check_integer(
+                self._bounded_right_shift(left, right, node.op.span),
+                node.op.span,
+            )
         else:
             raise RuneInternalError(
                 f"Unknown operator: {node.op.type.value}", node.op.span

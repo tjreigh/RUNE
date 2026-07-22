@@ -17,6 +17,31 @@ from spans import SourceSpan
 
 MAX_EXPRESSION_NESTING = 100
 
+_COMPARISON_OPERATORS = frozenset({
+    TokenType.LT,
+    TokenType.GT,
+    TokenType.LTE,
+    TokenType.GTE,
+    TokenType.EQ,
+    TokenType.NEQ,
+})
+
+# Conventional binary operators are left-associative. Larger numbers bind
+# more tightly; unary and power are parsed separately above these levels.
+_BINARY_PRECEDENCE = {
+    **{operator: 1 for operator in _COMPARISON_OPERATORS},
+    TokenType.BIT_OR: 2,
+    TokenType.BIT_XOR: 3,
+    TokenType.BIT_AND: 4,
+    TokenType.SHIFT_LEFT: 5,
+    TokenType.SHIFT_RIGHT: 5,
+    TokenType.PLUS: 6,
+    TokenType.MINUS: 6,
+    TokenType.MULT: 7,
+    TokenType.DIV: 7,
+    TokenType.MOD: 7,
+}
+
 
 class Parser:
     """
@@ -30,7 +55,11 @@ class Parser:
                     (ELIF LPAREN expr RPAREN statement*)*
                     (ELSE statement*)? END
         expr      : comparison
-        comparison: arith_expr ((LT | GT | LTE | GTE | EQ | NEQ) arith_expr)*
+        comparison: bitwise_or ((LT | GT | LTE | GTE | EQ | NEQ) bitwise_or)*
+        bitwise_or: bitwise_xor (BIT_OR bitwise_xor)*
+        bitwise_xor: bitwise_and (BIT_XOR bitwise_and)*
+        bitwise_and: shift (BIT_AND shift)*
+        shift     : arith_expr ((SHIFT_LEFT | SHIFT_RIGHT) arith_expr)*
         arith_expr: term ((PLUS | MINUS) term)*
         term      : unary ((MULT | DIV | MOD) unary)*
         unary     : (MINUS | BIT_NOT) unary | power
@@ -194,74 +223,32 @@ class Parser:
         )
 
     def expr(self):
-        """
-        Parse expression: comparison
-        Entry point for expressions
-        """
-        return self.comparison()
+        """Parse a complete expression through precedence climbing."""
+        return self.binary_expression()
 
-    def comparison(self):
-        """
-        Parse comparison: arith_expr ((LT | GT | LTE | GTE | EQ | NEQ) arith_expr)*
-        This handles comparison operators (lowest precedence in expressions)
-        """
-        node = self.arith_expr()
-
-        comparison_ops = [TokenType.LT, TokenType.GT, TokenType.LTE,
-                         TokenType.GTE, TokenType.EQ, TokenType.NEQ]
-
-        while self.current_token().type in comparison_ops:
-            op = self.current_token()
-            self.eat(op.type)
-            right = self.arith_expr()
-            node = ComparisonNode(
-                node,
-                op,
-                right,
-                span=SourceSpan.covering(node.span, right.span),
-            )
-
-        return node
-
-    def arith_expr(self):
-        """
-        Parse arith_expr: term ((PLUS | MINUS) term)*
-        This handles addition and subtraction
-        """
-        node = self.term()
-
-        while self.current_token().type in [TokenType.PLUS, TokenType.MINUS]:
-            op = self.current_token()
-            self.eat(op.type)
-            right = self.term()
-            node = BinaryOpNode(
-                node,
-                op,
-                right,
-                span=SourceSpan.covering(node.span, right.span),
-            )
-
-        return node
-
-    def term(self):
-        """
-        Parse term: unary ((MULT | DIV | MOD) unary)*
-        These operators share precedence above addition and subtraction.
-        """
+    def binary_expression(self, minimum_precedence=1):
+        """Parse left-associative binary operators without one stack frame
+        per precedence level, preserving the 100-level nesting guarantee."""
         node = self.unary()
 
-        term_operators = [TokenType.MULT, TokenType.DIV, TokenType.MOD]
-        while self.current_token().type in term_operators:
+        while True:
             op = self.current_token()
+            precedence = _BINARY_PRECEDENCE.get(op.type)
+            if precedence is None or precedence < minimum_precedence:
+                break
             self.eat(op.type)
-            right = self.unary()
-            node = BinaryOpNode(
+            right = self.binary_expression(precedence + 1)
+            node_type = (
+                ComparisonNode
+                if op.type in _COMPARISON_OPERATORS
+                else BinaryOpNode
+            )
+            node = node_type(
                 node,
                 op,
                 right,
                 span=SourceSpan.covering(node.span, right.span),
             )
-
         return node
 
     def unary(self):

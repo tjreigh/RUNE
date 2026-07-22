@@ -94,6 +94,32 @@ def test_arithmetic_runtime_failure_is_transactional(source, message, column_end
     assert result.state.variables == {"original": 7}
 
 
+def test_bitwise_and_shift_operators_work_in_stateful_program():
+    result = evaluate(
+        "mask = 0b1010\n"
+        "shifted = mask << 2\n"
+        "(shifted | 0b0011) ^ 0b0001"
+    )
+
+    assert result.ok
+    assert result.values == [42]
+    assert result.state.variables == {"mask": 10, "shifted": 40}
+
+
+@pytest.mark.parametrize("operator", ["<<", ">>"])
+def test_negative_shift_failure_is_transactional(operator):
+    state = RuntimeState(variables={"original": 7})
+    result = evaluate(f"temporary = 9\n1 {operator} -1", state)
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.RUNTIME
+    assert result.diagnostics[0].message == "Negative shift count"
+    assert result.diagnostics[0].span == SourceSpan(
+        Position(2, 3), Position(2, 5)
+    )
+    assert result.state is state
+
+
 def test_grouping_preserves_inner_undefined_variable_span():
     result = evaluate("(missing)")
 

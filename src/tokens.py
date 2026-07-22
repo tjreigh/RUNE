@@ -15,6 +15,11 @@ class TokenType(Enum):
     MOD = "MOD"
     POWER = "POWER"
     BIT_NOT = "BIT_NOT"  # ~
+    BIT_AND = "BIT_AND"  # &
+    BIT_OR = "BIT_OR"    # |
+    BIT_XOR = "BIT_XOR"  # ^
+    SHIFT_LEFT = "SHIFT_LEFT"    # <<
+    SHIFT_RIGHT = "SHIFT_RIGHT"  # >>
     # Comparison operators
     LT = "LT"          # <
     GT = "GT"          # >
