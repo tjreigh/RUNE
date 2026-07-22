@@ -100,6 +100,12 @@ class Lexer:
                     tokens.append(Token(TokenType.ELSE, ident, self.span_from(start)))
                 elif ident == "end":
                     tokens.append(Token(TokenType.END, ident, self.span_from(start)))
+                elif ident == "and":
+                    tokens.append(Token(TokenType.AND, ident, self.span_from(start)))
+                elif ident == "or":
+                    tokens.append(Token(TokenType.OR, ident, self.span_from(start)))
+                elif ident == "not":
+                    tokens.append(Token(TokenType.NOT, ident, self.span_from(start)))
                 else:
                     tokens.append(
                         Token(TokenType.IDENTIFIER, ident, self.span_from(start))

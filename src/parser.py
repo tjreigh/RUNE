@@ -4,6 +4,8 @@ from ast_nodes import (
     NumberNode,
     StringNode,
     ComparisonNode,
+    LogicalOpNode,
+    LogicalNotNode,
     ChaosPragmaNode,
     VariableNode,
     AssignmentNode,
@@ -54,7 +56,10 @@ class Parser:
         if_stmt   : IF LPAREN expr RPAREN statement*
                     (ELIF LPAREN expr RPAREN statement*)*
                     (ELSE statement*)? END
-        expr      : comparison
+        expr      : logical_or
+        logical_or: logical_and (OR logical_and)*
+        logical_and: logical_not (AND logical_not)*
+        logical_not: NOT logical_not | comparison
         comparison: bitwise_or ((LT | GT | LTE | GTE | EQ | NEQ) bitwise_or)*
         bitwise_or: bitwise_xor (BIT_OR bitwise_xor)*
         bitwise_xor: bitwise_and (BIT_XOR bitwise_and)*
@@ -223,7 +228,50 @@ class Parser:
         )
 
     def expr(self):
-        """Parse a complete expression through precedence climbing."""
+        """Parse a complete expression, including short-circuiting logic."""
+        return self.logical_or()
+
+    def logical_or(self):
+        """Parse left-associative logical OR expressions."""
+        node = self.logical_and()
+        while self.current_token().type == TokenType.OR:
+            op = self.current_token()
+            self.eat(TokenType.OR)
+            right = self.logical_and()
+            node = LogicalOpNode(
+                node,
+                op,
+                right,
+                span=SourceSpan.covering(node.span, right.span),
+            )
+        return node
+
+    def logical_and(self):
+        """Parse left-associative logical AND expressions."""
+        node = self.logical_not()
+        while self.current_token().type == TokenType.AND:
+            op = self.current_token()
+            self.eat(TokenType.AND)
+            right = self.logical_not()
+            node = LogicalOpNode(
+                node,
+                op,
+                right,
+                span=SourceSpan.covering(node.span, right.span),
+            )
+        return node
+
+    def logical_not(self):
+        """Parse right-nested logical negation below comparison precedence."""
+        token = self.current_token()
+        if token.type == TokenType.NOT:
+            self.eat(TokenType.NOT)
+            operand = self.parse_nested(self.logical_not, token)
+            return LogicalNotNode(
+                token,
+                operand,
+                span=SourceSpan(token.span.start, operand.span.end),
+            )
         return self.binary_expression()
 
     def binary_expression(self, minimum_precedence=1):

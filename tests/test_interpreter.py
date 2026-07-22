@@ -4,7 +4,14 @@ from lexer import Lexer
 from parser import Parser
 from interpreter import Interpreter
 from tokens import Token, TokenType
-from ast_nodes import BinaryOpNode, ComparisonNode, NumberNode, UnaryOpNode
+from ast_nodes import (
+    BinaryOpNode,
+    ComparisonNode,
+    LogicalOpNode,
+    LogicalNotNode,
+    NumberNode,
+    UnaryOpNode,
+)
 from diagnostics import RuneInternalError, RuneRuntimeError
 from runtime_state import RuntimeState
 
@@ -218,6 +225,55 @@ def test_comparisons_return_one_or_zero(src, expected):
     assert _run(src) == expected
 
 
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("5 and 8", 1),
+        ("0 and 8", 0),
+        ("5 or 0", 1),
+        ("0 or 8", 1),
+        ("0 or 0", 0),
+        ("not 0", 1),
+        ("not 5", 0),
+    ],
+)
+def test_logical_operators_normalize_to_one_or_zero(source, expected):
+    assert _run(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("0 and missing", 0),
+        ("5 or missing", 1),
+        ("@chaos 10\n5 and missing", [0]),
+        ("@chaos 10\n20 or missing", [1]),
+    ],
+)
+def test_logical_operators_skip_unneeded_right_operand(source, expected):
+    assert _run(source) == expected
+
+
+def test_logical_operators_visit_needed_right_operand():
+    with pytest.raises(RuneRuntimeError) as exc_info:
+        _run("5 and missing")
+    assert exc_info.value.diagnostic.message == "Undefined variable 'missing'"
+
+    with pytest.raises(RuneRuntimeError) as exc_info:
+        _run("0 or missing")
+    assert exc_info.value.diagnostic.message == "Undefined variable 'missing'"
+
+
+def test_higher_chaos_threshold_controls_logic_before_normalization():
+    assert _run("@chaos 10\n5 or 20") == [1]
+    assert _run("@chaos 10\nnot 5") == [1]
+    assert _run("@chaos 10\nnot 20") == [0]
+
+
+def test_normalized_logical_result_can_itself_be_chaos_falsy():
+    assert _run("@chaos 10\nif (5 or 20)\n99\nelse\n0\nend") == [0]
+
+
 def test_chaos_truthy_boundaries():
     interp = Interpreter(state=RuntimeState(chaos_threshold=5))
     assert interp.is_chaos_truthy(5) is True
@@ -278,3 +334,17 @@ def test_unknown_comparison_operator_raises_internal_error():
     node = ComparisonNode(NumberNode(1), bad_op, NumberNode(2))
     with pytest.raises(RuneInternalError):
         Interpreter().visit_comparison(node)
+
+
+def test_unknown_logical_operator_raises_internal_error():
+    bad_op = Token(TokenType.PLUS, "+")
+    node = LogicalOpNode(NumberNode(1), bad_op, NumberNode(2))
+    with pytest.raises(RuneInternalError):
+        Interpreter().visit_logical_op(node)
+
+
+def test_unknown_logical_not_operator_raises_internal_error():
+    bad_op = Token(TokenType.MINUS, "-")
+    node = LogicalNotNode(bad_op, NumberNode(1))
+    with pytest.raises(RuneInternalError):
+        Interpreter().visit_logical_not(node)

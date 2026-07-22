@@ -4,6 +4,8 @@ from ast_nodes import (
     NumberNode,
     StringNode,
     ComparisonNode,
+    LogicalOpNode,
+    LogicalNotNode,
     ChaosPragmaNode,
     VariableNode,
     AssignmentNode,
@@ -173,6 +175,10 @@ class Interpreter:
                 return self.visit_binop(node)
             elif isinstance(node, ComparisonNode):
                 return self.visit_comparison(node)
+            elif isinstance(node, LogicalOpNode):
+                return self.visit_logical_op(node)
+            elif isinstance(node, LogicalNotNode):
+                return self.visit_logical_not(node)
             elif isinstance(node, ChaosPragmaNode):
                 return self.visit_chaos_pragma(node)
             elif isinstance(node, VariableNode):
@@ -287,6 +293,32 @@ class Interpreter:
 
         # Return 1 for truthy, 0 for falsy
         return 1 if result else 0
+
+    def visit_logical_op(self, node):
+        """Evaluate AND/OR lazily and normalize the result to 1 or 0."""
+        left_is_truthy = self.is_chaos_truthy(self.visit(node.left))
+
+        if node.op.type == TokenType.AND:
+            if not left_is_truthy:
+                return 0
+            return 1 if self.is_chaos_truthy(self.visit(node.right)) else 0
+
+        if node.op.type == TokenType.OR:
+            if left_is_truthy:
+                return 1
+            return 1 if self.is_chaos_truthy(self.visit(node.right)) else 0
+
+        raise RuneInternalError(
+            f"Unknown logical operator: {node.op.type.value}", node.op.span
+        )
+
+    def visit_logical_not(self, node):
+        """Negate one chaos-truthiness result and normalize to 1 or 0."""
+        if node.op.type != TokenType.NOT:
+            raise RuneInternalError(
+                f"Unknown logical operator: {node.op.type.value}", node.op.span
+            )
+        return 0 if self.is_chaos_truthy(self.visit(node.operand)) else 1
 
     def visit_chaos_pragma(self, node):
         """Handle @chaos pragma - replaces the working state and records

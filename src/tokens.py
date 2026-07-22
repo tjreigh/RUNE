@@ -34,6 +34,7 @@ class TokenType(Enum):
     ELSE = "ELSE"
     AND = "AND"
     OR = "OR"
+    NOT = "NOT"
     # Pragma tokens
     PRAGMA = "PRAGMA"  # @
     CHAOS = "CHAOS"    # chaos keyword

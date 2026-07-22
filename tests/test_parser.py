@@ -8,6 +8,8 @@ from ast_nodes import (
     StringNode,
     BinaryOpNode,
     ComparisonNode,
+    LogicalOpNode,
+    LogicalNotNode,
     ChaosPragmaNode,
     VariableNode,
     AssignmentNode,
@@ -218,6 +220,34 @@ def test_comparison_binds_below_bitwise_operators():
     assert isinstance(node, ComparisonNode)
     assert isinstance(node.left, BinaryOpNode)
     assert node.left.op.type == TokenType.BIT_OR
+
+
+def test_logical_precedence_is_or_then_and_then_not_then_comparison():
+    node = _parse("1 or 2 and not 3 == 4")
+
+    assert isinstance(node, LogicalOpNode)
+    assert node.op.type == TokenType.OR
+    assert isinstance(node.right, LogicalOpNode)
+    assert node.right.op.type == TokenType.AND
+    assert isinstance(node.right.right, LogicalNotNode)
+    assert isinstance(node.right.right.operand, ComparisonNode)
+
+
+def test_logical_operators_are_left_associative_and_spanned():
+    node = _parse("1 and 2 and 3")
+
+    assert isinstance(node, LogicalOpNode)
+    assert node.op.type == TokenType.AND
+    assert isinstance(node.left, LogicalOpNode)
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 14))
+
+
+def test_logical_not_nests_from_right_to_left():
+    node = _parse("not not 5")
+
+    assert isinstance(node, LogicalNotNode)
+    assert isinstance(node.operand, LogicalNotNode)
+    assert node.span == SourceSpan(Position(1, 1), Position(1, 10))
 
 
 def test_power_nesting_at_limit_is_accepted():

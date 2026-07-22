@@ -106,6 +106,21 @@ def test_bitwise_and_shift_operators_work_in_stateful_program():
     assert result.state.variables == {"mask": 10, "shifted": 40}
 
 
+def test_chaos_aware_logic_works_in_stateful_program():
+    result = evaluate(
+        "@chaos 10\n"
+        "low = 5\n"
+        "high = 20\n"
+        "low or high\n"
+        "high and low\n"
+        "not low"
+    )
+
+    assert result.ok
+    assert result.values == [1, 0, 1]
+    assert result.state.variables == {"high": 20, "low": 5}
+
+
 @pytest.mark.parametrize("operator", ["<<", ">>"])
 def test_negative_shift_failure_is_transactional(operator):
     state = RuntimeState(variables={"original": 7})

@@ -90,6 +90,29 @@ class ComparisonNode(SpannedNode):
         return f"Compare({self.left} {self.op.value} {self.right})"
 
 
+class LogicalOpNode(SpannedNode):
+    """Represents a short-circuiting logical operation: left and/or right."""
+    def __init__(self, left, op, right, span=None):
+        self.left = left
+        self.op = op
+        self.right = right
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"LogicalOp({self.left} {self.op.value} {self.right})"
+
+
+class LogicalNotNode(SpannedNode):
+    """Represents chaos-aware logical negation: not operand."""
+    def __init__(self, op, operand, span=None):
+        self.op = op
+        self.operand = operand
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"LogicalNot({self.op.value} {self.operand})"
+
+
 class ChaosPragmaNode(SpannedNode):
     """Represents @chaos pragma directive"""
     def __init__(self, threshold, span=None):
