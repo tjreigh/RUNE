@@ -17,6 +17,15 @@ def _memory_error_evaluator(source, state=None, limits=None):
     raise MemoryError
 
 
+def _unbounded_rune_evaluator(source, state=None, limits=None):
+    """Test-only evaluator proving the process deadline is independent of
+    interpreter budgets."""
+    from limits import ExecutionLimits
+    from runtime import evaluate
+
+    return evaluate(source, state=state, limits=ExecutionLimits.unbounded())
+
+
 def _normal_result_dict():
     return {
         "ok": True, "values": [4], "diagnostics": [], "events": [],
@@ -166,6 +175,58 @@ def test_evaluate_isolated_restores_variable_state_in_worker():
     assert outcome.body["values"] == [42]
 
 
+def test_worker_always_supplies_finite_interpreter_limits(monkeypatch, tmp_path):
+    observed = {}
+
+    def evaluator(source, state=None, limits=None):
+        observed["limits"] = limits
+        return SimpleNamespace(to_dict=_normal_result_dict)
+
+    monkeypatch.setattr(rune_worker, "_apply_worker_resource_limits", lambda: None)
+    result_path = tmp_path / "result.json"
+
+    rune_worker._worker_entrypoint(
+        result_path,
+        "2 + 2",
+        {"chaos_threshold": 1},
+        evaluator=evaluator,
+    )
+
+    assert result_path.exists()
+    assert observed["limits"].is_unbounded is False
+    assert all(
+        value is not None
+        for value in (
+            observed["limits"].max_steps,
+            observed["limits"].max_recursion_depth,
+            observed["limits"].max_output_values,
+            observed["limits"].max_variables,
+            observed["limits"].max_integer_bits,
+            observed["limits"].max_events,
+        )
+    )
+
+
+def test_real_infinite_loop_hits_finite_worker_step_budget_transactionally():
+    initial_state = {
+        "chaos_threshold": 1,
+        "variables": {"kept": 7},
+    }
+    outcome = evaluate_isolated(
+        "temporary = 9\nwhile (1)\nend while",
+        initial_state,
+    )
+
+    assert outcome.status_code == 200
+    assert outcome.body["ok"] is False
+    assert outcome.body["diagnostics"][0]["kind"] == "limit"
+    assert outcome.body["diagnostics"][0]["message"] == "Step budget exceeded"
+    assert outcome.body["state"] == initial_state
+    assert outcome.body["values"] == []
+    assert outcome.body["events"] == []
+    assert outcome.body["stats"]["loop_iterations"] > 0
+
+
 def test_evaluate_isolated_timeout_translation():
     outcome = evaluate_isolated(
         "2+2", {"chaos_threshold": 1}, timeout=0.3, worker_evaluator=_hanging_evaluator
@@ -175,6 +236,29 @@ def test_evaluate_isolated_timeout_translation():
     assert outcome.body["diagnostics"][0]["kind"] == "limit"
     assert outcome.body["diagnostics"][0]["message"] == "Wall-clock timeout exceeded"
     assert outcome.body["state"] == {"chaos_threshold": 1}
+
+
+def test_unbounded_rune_loop_is_killed_by_worker_wall_clock_timeout():
+    initial_state = {
+        "chaos_threshold": 1,
+        "variables": {"kept": 7},
+    }
+    outcome = evaluate_isolated(
+        "temporary = 9\nwhile (1)\nend while",
+        initial_state,
+        timeout=0.5,
+        worker_evaluator=_unbounded_rune_evaluator,
+    )
+
+    assert outcome.status_code == 200
+    assert outcome.body["ok"] is False
+    assert outcome.body["diagnostics"][0]["kind"] == "limit"
+    assert outcome.body["diagnostics"][0]["message"] == (
+        "Wall-clock timeout exceeded"
+    )
+    assert outcome.body["state"] == initial_state
+    assert outcome.body["values"] == []
+    assert outcome.body["events"] == []
 
 
 def test_evaluate_isolated_memory_error_becomes_limit_outcome():

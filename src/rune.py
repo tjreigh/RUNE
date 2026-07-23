@@ -8,6 +8,7 @@ Usage:
     python3 rune.py <file.rune> --verbose     # Show execution details
     python3 rune.py <file.rune> --show-ast    # Show Abstract Syntax Tree
     python3 rune.py <file.rune> --show-tokens # Show token stream
+    python3 rune.py <file.rune> --unbounded   # Disable interpreter budgets
     python3 rune.py --repl                    # Interactive REPL mode
 """
 
@@ -17,6 +18,7 @@ from pathlib import Path
 
 from runtime import RuntimeState, compile_source, execute, evaluate
 from diagnostics import RuneError, Diagnostic, DiagnosticKind
+from limits import ExecutionLimits
 
 _ERROR_LABELS = {
     DiagnosticKind.LEX: "Lex error",
@@ -46,7 +48,13 @@ def format_event(event) -> str:
     return f"[{event.kind.upper()}] {event.data}"
 
 
-def run_file(filepath, show_tokens=False, show_ast=False, verbose=False):
+def run_file(
+    filepath,
+    show_tokens=False,
+    show_ast=False,
+    verbose=False,
+    limits=None,
+):
     """Execute a RUNE file"""
     # Read the file
     try:
@@ -60,16 +68,26 @@ def run_file(filepath, show_tokens=False, show_ast=False, verbose=False):
         return 1
     
     # Execute the code
-    return run_code(code, filepath, show_tokens, show_ast, verbose)
+    return run_code(code, filepath, show_tokens, show_ast, verbose, limits)
 
 
-def run_code(code, source_name="<input>", show_tokens=False, show_ast=False, verbose=False):
+def run_code(
+    code,
+    source_name="<input>",
+    show_tokens=False,
+    show_ast=False,
+    verbose=False,
+    limits=None,
+):
     """Execute RUNE code string"""
     if not code.strip():
         return 0
     
     try:
         program = compile_source(code)
+    except KeyboardInterrupt:
+        print("Execution interrupted.", file=sys.stderr)
+        return 130
     except RuneError as e:
         print(format_error(e), file=sys.stderr)
         return 1
@@ -98,7 +116,10 @@ def run_code(code, source_name="<input>", show_tokens=False, show_ast=False, ver
         print(f"{'='*60}")
 
     try:
-        result = execute(program)
+        result = execute(program, limits=limits)
+    except KeyboardInterrupt:
+        print("Execution interrupted.", file=sys.stderr)
+        return 130
     except Exception as e:
         print(f"Unexpected internal error: {e}", file=sys.stderr)
         return 1
@@ -118,7 +139,7 @@ def run_code(code, source_name="<input>", show_tokens=False, show_ast=False, ver
     return 0
 
 
-def repl():
+def repl(limits=None):
     """Interactive REPL mode"""
     print("RUNE Interactive REPL")
     print("Type expressions to evaluate them. Ctrl+C or Ctrl+D to exit.")
@@ -133,7 +154,7 @@ def repl():
             if not code.strip():
                 continue
 
-            result = evaluate(code, state)
+            result = evaluate(code, state, limits=limits)
 
             if result.ok:
                 state = result.state
@@ -163,6 +184,7 @@ Examples:
     python3 rune.py program.rune              # Run a RUNE file
     python3 rune.py program.rune --verbose    # Show execution details
     python3 rune.py program.rune --show-ast   # Show Abstract Syntax Tree
+    python3 rune.py program.rune --unbounded  # Trusted run without budgets
     python3 rune.py --repl                    # Interactive REPL mode
         """
     )
@@ -192,12 +214,22 @@ Examples:
         action='store_true',
         help='Show verbose execution details'
     )
+    parser.add_argument(
+        '--unbounded',
+        action='store_true',
+        help=(
+            'Disable interpreter budgets for this trusted local run; '
+            'programs may run forever or exhaust host resources'
+        ),
+    )
     
     args = parser.parse_args()
     
+    limits = ExecutionLimits.unbounded() if args.unbounded else None
+
     # Handle REPL mode
     if args.repl:
-        repl()
+        repl(limits=limits)
         return 0
     
     # Must provide a file if not in REPL mode
@@ -210,7 +242,8 @@ Examples:
         args.file,
         show_tokens=args.show_tokens,
         show_ast=args.show_ast,
-        verbose=args.verbose
+        verbose=args.verbose,
+        limits=limits,
     )
 
 

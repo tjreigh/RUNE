@@ -117,13 +117,60 @@ assignment itself produces no output. Reading a name that has not been assigned
 is a runtime error.
 
 Names begin with a letter or underscore and may then contain letters, digits,
-or underscores. Language keywords, including `if`, `else`, `end`, `and`, `or`,
-`not`, and `chaos`, are reserved.
+or underscores. Language keywords, including `if`, `while`, `for`, `break`,
+`continue`, and `chaos`, are reserved.
 
 Variables persist between successful inputs in the terminal REPL and within an
 expiring browser session in the web REPL. A failed, timed-out, or rejected
 evaluation does not commit partial variable or chaos changes. Reset discards the
 web session.
+
+### Loops
+
+`while` checks chaos truthiness before every iteration. This loop outputs `5`,
+`4`, and `3`, then stops because `2` falls below the threshold:
+
+```rune
+@chaos 3
+count = 5
+while (count)
+count
+count = count - 1
+end while
+```
+
+Counted loops include both endpoints. Their bounds and optional step are
+evaluated once, and the counter exists only inside the loop:
+
+```rune
+for i from 1 to 5 step 2
+i
+end for
+```
+
+This outputs `1`, `3`, and `5`. The default step is `1`; a negative step counts
+down, a step aimed away from the endpoint runs zero times, and zero is an
+error. `break` exits the nearest loop and `continue` starts its next iteration.
+Loop blocks use typed endings: `end while` and `end for`.
+
+### Can RUNE run forever?
+
+In theory, absolutely. Variables, arithmetic, conditionals, and `while` are
+enough to make RUNE Turing-complete: it can express any computation if you give
+it unlimited time and absurdly large integers.
+
+The public web REPL does not make that promise. It limits work, memory, output,
+events, and wall-clock time so one chaotic program cannot eat the server.
+Trusted local runs can remove RUNE's interpreter budgets explicitly:
+
+```sh
+.venv/bin/python src/rune.py program.rune --unbounded
+```
+
+Normal command-line and REPL runs remain bounded. `--unbounded` allows a
+program to run forever or exhaust host resources, and it does not remove parser
+safeguards or limits imposed by Python and the operating system. RUNE code and
+browser requests can never turn the limits off themselves.
 
 ## Run it (locally)
 
@@ -149,6 +196,11 @@ than partial working changes.
 
 Run the test suite with `scripts/test.sh`. Extra arguments are passed to pytest,
 so `scripts/test.sh -k isolation` works too.
+
+Generate terminal and HTML line/branch coverage reports with
+`scripts/coverage.sh`. Extra pytest arguments are also supported, such as
+`scripts/coverage.sh -k interpreter`. Open `htmlcov/index.html` to browse the
+HTML report.
 
 ## Deployment
 

@@ -7,27 +7,54 @@ DEFAULT_MAX_INTEGER_BITS = 14_285
 @dataclass(frozen=True)
 class ExecutionLimits:
     """Deterministic interpreter execution bounds checked during a single
-    evaluation. Wall-clock and process-memory containment are separate."""
-    max_steps: int = 10_000
-    max_recursion_depth: int = 100
-    max_output_values: int = 1_000
-    max_variables: int = 256
-    max_integer_bits: int = DEFAULT_MAX_INTEGER_BITS
-    max_events: int = 1_000
+    evaluation. ``None`` disables one interpreter-level ceiling; wall-clock,
+    parser, and process-memory containment are separate."""
+    max_steps: int | None = 10_000
+    max_recursion_depth: int | None = 100
+    max_output_values: int | None = 1_000
+    max_variables: int | None = 256
+    max_integer_bits: int | None = DEFAULT_MAX_INTEGER_BITS
+    max_events: int | None = 1_000
 
     def __post_init__(self):
-        if self.max_steps < 1:
-            raise ValueError("max_steps must be at least 1")
-        if self.max_recursion_depth < 1:
-            raise ValueError("max_recursion_depth must be at least 1")
-        if self.max_output_values < 1:
-            raise ValueError("max_output_values must be at least 1")
-        if self.max_events < 1:
-            raise ValueError("max_events must be at least 1")
-        if self.max_variables < 1:
-            raise ValueError("max_variables must be at least 1")
-        if self.max_integer_bits < 1:
-            raise ValueError("max_integer_bits must be at least 1")
+        for name in (
+            "max_steps",
+            "max_recursion_depth",
+            "max_output_values",
+            "max_events",
+            "max_variables",
+            "max_integer_bits",
+        ):
+            value = getattr(self, name)
+            if value is not None and value < 1:
+                raise ValueError(f"{name} must be at least 1 or None")
+
+    @classmethod
+    def unbounded(cls):
+        """Disable every interpreter budget for explicit trusted execution."""
+        return cls(
+            max_steps=None,
+            max_recursion_depth=None,
+            max_output_values=None,
+            max_variables=None,
+            max_integer_bits=None,
+            max_events=None,
+        )
+
+    @property
+    def is_unbounded(self):
+        """Whether every interpreter budget is disabled."""
+        return all(
+            value is None
+            for value in (
+                self.max_steps,
+                self.max_recursion_depth,
+                self.max_output_values,
+                self.max_variables,
+                self.max_integer_bits,
+                self.max_events,
+            )
+        )
 
 
 @dataclass(frozen=True)

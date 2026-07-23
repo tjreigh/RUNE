@@ -1,40 +1,16 @@
+from pathlib import Path
+
 import rune
+from limits import ExecutionLimits
 
-TEST_RUNE_SOURCE = """answer = 40
-answer = answer + 2
-answer
-0b101010
-(2 + 3) ** 2
--17 / 5
--17 % 5
-(0b1010 << 2 | 0b0011) ^ 1
-"dog" + "cat"
-@chaos 1
-0 and missing
-5 or missing
-not 0
-if ("dog" > "cat")
-1
-else
-0
-end if
-if (0)
-0
-elif (2)
-2
-else
-0
-end if
-@chaos 10
-5 or 20
-if (5 or 20)
-99
-else
-0
-end if
-"""
+TEST_RUNE_SOURCE = (
+    Path(__file__).resolve().parent.parent / "test.rune"
+).read_text()
 
-EXPECTED_OUTPUT = "42\n42\n25\n-3\n-2\n42\n626\n0\n1\n1\n1\n2\n1\n0\n"
+EXPECTED_OUTPUT = (
+    "42\n42\n25\n-3\n-2\n42\n626\n0\n1\n1\n1\n2\n1\n0\n"
+    "5\n4\n3\n1\n3\n5\n1\n3\n4\n"
+)
 
 
 def test_run_file_golden_output(tmp_path, capsys):
@@ -50,6 +26,22 @@ def test_run_file_golden_output(tmp_path, capsys):
 def test_run_file_missing_file_returns_error():
     rc = rune.run_file("this_file_does_not_exist.rune")
     assert rc == 1
+
+
+def test_run_file_accepts_trusted_unbounded_policy(tmp_path, capsys):
+    path = tmp_path / "long-running.rune"
+    path.write_text("for i from 1 to 10001\nend for")
+
+    bounded_rc = rune.run_file(str(path))
+    assert bounded_rc == 1
+    assert "Step budget exceeded" in capsys.readouterr().err
+
+    unbounded_rc = rune.run_file(
+        str(path),
+        limits=ExecutionLimits.unbounded(),
+    )
+    assert unbounded_rc == 0
+    assert capsys.readouterr().err == ""
 
 
 def test_run_code_lex_error_reports_to_stderr(capsys):
@@ -75,6 +67,18 @@ def test_run_code_parse_error_reports_to_stderr(capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "Parse error" in err
+
+
+def test_run_code_interrupt_exits_cleanly_without_traceback(monkeypatch, capsys):
+    def interrupted_execute(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(rune, "execute", interrupted_execute)
+
+    rc = rune.run_code("while (1)\nend while", limits=ExecutionLimits.unbounded())
+
+    assert rc == 130
+    assert capsys.readouterr().err == "Execution interrupted.\n"
 
 
 def test_repl_handles_errors_and_exits(monkeypatch, capsys):
@@ -157,3 +161,46 @@ def test_repl_state_survives_failed_evaluation_unchanged(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Lex error" in out
     assert "=> 0" in out
+
+
+def test_main_unbounded_flag_selects_trusted_policy_for_file(monkeypatch):
+    observed = {}
+
+    def fake_run_file(filepath, **kwargs):
+        observed["filepath"] = filepath
+        observed["limits"] = kwargs["limits"]
+        return 0
+
+    monkeypatch.setattr(rune, "run_file", fake_run_file)
+    monkeypatch.setattr(rune.sys, "argv", ["rune", "program.rune", "--unbounded"])
+
+    assert rune.main() == 0
+    assert observed["filepath"] == "program.rune"
+    assert observed["limits"].is_unbounded
+
+
+def test_main_remains_bounded_without_unbounded_flag(monkeypatch):
+    observed = {}
+
+    def fake_run_file(filepath, **kwargs):
+        observed["limits"] = kwargs["limits"]
+        return 0
+
+    monkeypatch.setattr(rune, "run_file", fake_run_file)
+    monkeypatch.setattr(rune.sys, "argv", ["rune", "program.rune"])
+
+    assert rune.main() == 0
+    assert observed["limits"] is None
+
+
+def test_main_unbounded_flag_selects_trusted_policy_for_repl(monkeypatch):
+    observed = {}
+
+    def fake_repl(limits=None):
+        observed["limits"] = limits
+
+    monkeypatch.setattr(rune, "repl", fake_repl)
+    monkeypatch.setattr(rune.sys, "argv", ["rune", "--repl", "--unbounded"])
+
+    assert rune.main() == 0
+    assert observed["limits"].is_unbounded

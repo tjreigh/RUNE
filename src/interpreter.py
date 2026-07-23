@@ -75,7 +75,8 @@ class Interpreter:
     def _tick(self, span):
         """Charge one deterministic unit of interpreter work."""
         self._steps += 1
-        if self._steps > self.limits.max_steps:
+        maximum = self.limits.max_steps
+        if maximum is not None and self._steps > maximum:
             raise RuneLimitError("Step budget exceeded", span)
 
     def _begin_loop_iteration(self, span):
@@ -85,7 +86,8 @@ class Interpreter:
 
     def _record_event(self, event):
         """Append one event within the serialized event-count budget."""
-        if self._event_count + 1 > self.limits.max_events:
+        maximum = self.limits.max_events
+        if maximum is not None and self._event_count + 1 > maximum:
             raise RuneLimitError("Event budget exceeded", event.span)
         self.events.append(event)
         self._event_count += 1
@@ -95,17 +97,18 @@ class Interpreter:
         and recursion depth, a rejected value was never actually emitted,
         so the counter (and reported stats) only reflect accepted values."""
         self._check_integer(value, span)
-        if self._output_count + 1 > self.limits.max_output_values:
+        maximum = self.limits.max_output_values
+        if maximum is not None and self._output_count + 1 > maximum:
             raise RuneLimitError("Output budget exceeded", span)
         self._output_count += 1
         return value
 
     def _check_integer(self, value, span):
         """Enforce the runtime integer invariant at value boundaries."""
-        if value.bit_length() > self.limits.max_integer_bits:
+        maximum = self.limits.max_integer_bits
+        if maximum is not None and value.bit_length() > maximum:
             raise RuneLimitError(
-                "Integer magnitude exceeds the "
-                f"{self.limits.max_integer_bits}-bit limit",
+                f"Integer magnitude exceeds the {maximum}-bit limit",
                 span,
             )
         return value
@@ -114,7 +117,8 @@ class Interpreter:
         """Reject state created under a looser limit before evaluating it."""
         self._check_integer(self.state.chaos_threshold, None)
         variables = self.state.variables
-        if len(variables) > self.limits.max_variables:
+        maximum = self.limits.max_variables
+        if maximum is not None and len(variables) > maximum:
             raise RuneLimitError("Variable budget exceeded", None)
         for value in variables.values():
             self._check_integer(value, None)
@@ -134,7 +138,8 @@ class Interpreter:
             + self._bindings.binding_count
             + len(values)
         )
-        if total_bindings > self.limits.max_variables:
+        maximum = self.limits.max_variables
+        if maximum is not None and total_bindings > maximum:
             raise RuneLimitError("Variable budget exceeded", span)
         return self._bindings.frame(values, captures_assignments)
 
@@ -145,12 +150,12 @@ class Interpreter:
         the lower bound fits, constructing the product can exceed the budget
         by at most one bit, after which the exact check decides the boundary.
         """
-        if left and right:
+        maximum = self.limits.max_integer_bits
+        if maximum is not None and left and right:
             minimum_result_bits = left.bit_length() + right.bit_length() - 1
-            if minimum_result_bits > self.limits.max_integer_bits:
+            if minimum_result_bits > maximum:
                 raise RuneLimitError(
-                    "Integer magnitude exceeds the "
-                    f"{self.limits.max_integer_bits}-bit limit",
+                    f"Integer magnitude exceeds the {maximum}-bit limit",
                     span,
                 )
         return self._check_integer(left * right, span)
@@ -165,12 +170,12 @@ class Interpreter:
         """
         if exponent < 0:
             raise RuneRuntimeError("Negative exponent", span)
-        if abs(base) >= 2 and exponent:
+        maximum = self.limits.max_integer_bits
+        if maximum is not None and abs(base) >= 2 and exponent:
             minimum_result_bits = exponent * (base.bit_length() - 1) + 1
-            if minimum_result_bits > self.limits.max_integer_bits:
+            if minimum_result_bits > maximum:
                 raise RuneLimitError(
-                    "Integer magnitude exceeds the "
-                    f"{self.limits.max_integer_bits}-bit limit",
+                    f"Integer magnitude exceeds the {maximum}-bit limit",
                     span,
                 )
         return self._check_integer(base ** exponent, span)
@@ -199,10 +204,10 @@ class Interpreter:
         if value == 0:
             return 0
         result_bits = value.bit_length() + count
-        if result_bits > self.limits.max_integer_bits:
+        maximum = self.limits.max_integer_bits
+        if maximum is not None and result_bits > maximum:
             raise RuneLimitError(
-                "Integer magnitude exceeds the "
-                f"{self.limits.max_integer_bits}-bit limit",
+                f"Integer magnitude exceeds the {maximum}-bit limit",
                 span,
             )
         return self._check_integer(value << count, span)
@@ -225,7 +230,8 @@ class Interpreter:
             self._peak_depth = self._depth
 
         try:
-            if self._depth > self.limits.max_recursion_depth:
+            maximum_depth = self.limits.max_recursion_depth
+            if maximum_depth is not None and self._depth > maximum_depth:
                 raise RuneLimitError(
                     "Recursion depth exceeded", getattr(node, "span", None)
                 )
@@ -423,20 +429,23 @@ class Interpreter:
         value = self.visit(node.value)
         self._check_integer(value, node.value.span)
         local_frame = self._bindings.assignment_target(node.name)
+        maximum_variables = self.limits.max_variables
         if local_frame is not None:
             if (
-                node.name not in local_frame.values
+                maximum_variables is not None
+                and node.name not in local_frame.values
                 and len(self.state.variables) + self._bindings.binding_count
-                >= self.limits.max_variables
+                >= maximum_variables
             ):
                 raise RuneLimitError("Variable budget exceeded", node.span)
             local_frame.values[node.name] = value
         else:
             variables = self.state.variables
             if (
-                node.name not in variables
+                maximum_variables is not None
+                and node.name not in variables
                 and len(variables) + self._bindings.binding_count
-                >= self.limits.max_variables
+                >= maximum_variables
             ):
                 raise RuneLimitError("Variable budget exceeded", node.span)
             self.state = self.state.with_variable(node.name, value)

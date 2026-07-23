@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -387,6 +388,7 @@ def test_root_route_serves_html():
     assert '<option value="variables">Variables</option>' in response.text
     assert '<option value="expressions">Expressions</option>' in response.text
     assert '<option value="logic">Chaos-aware logic</option>' in response.text
+    assert '<option value="loops">Loops</option>' in response.text
     assert "answer = answer + 2" in response.text
     assert '<details id="inspector" class="inspector">' in response.text
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
@@ -411,6 +413,11 @@ def test_static_css_and_javascript_are_served_separately():
     assert "payload.session_id = sessionId" in javascript.text
     assert "0 and missing" in javascript.text
     assert "(0b1010 << 2 | 0b0011) ^ 1" in javascript.text
+    assert "while (count)" in javascript.text
+    assert "for i from 1 to 5 step 2" in javascript.text
+    assert "continue" in javascript.text
+    test_rune = (Path(__file__).resolve().parent.parent / "test.rune").read_text()
+    assert f"full: `{test_rune}`" in javascript.text
     assert 'fetch("/reset"' in javascript.text
     assert "payload.state" not in javascript.text
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text

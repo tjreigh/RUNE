@@ -39,6 +39,28 @@ else
 0
 end if
 `,
+  loops: `@chaos 3
+count = 5
+while (count)
+count
+count = count - 1
+end while
+
+@chaos 1
+for i from 1 to 5 step 2
+i
+end for
+
+for i from 1 to 5
+if (i == 2)
+continue
+end if
+if (i == 5)
+break
+end if
+i
+end for
+`,
   full: `answer = 40
 answer = answer + 2
 answer
@@ -71,6 +93,25 @@ if (5 or 20)
 else
 0
 end if
+@chaos 3
+count = 5
+while (count)
+count
+count = count - 1
+end while
+@chaos 1
+for i from 1 to 5 step 2
+i
+end for
+for i from 1 to 5
+if (i == 2)
+continue
+end if
+if (i == 5)
+break
+end if
+i
+end for
 `,
 };
 

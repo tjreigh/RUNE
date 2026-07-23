@@ -7,6 +7,7 @@ import rune
 from runtime import compile_source, execute, evaluate, RuntimeState
 from limits import ExecutionLimits, ExecutionStats
 from interpreter import Interpreter
+from ast_nodes import GroupNode, NumberNode
 from diagnostics import DiagnosticKind, RuneLimitError
 from spans import Position, SourceSpan
 
@@ -32,6 +33,56 @@ def test_execution_limits_rejects_invalid_values():
         ExecutionLimits(max_variables=0)
     with pytest.raises(ValueError):
         ExecutionLimits(max_integer_bits=0)
+
+
+def test_unbounded_policy_disables_every_interpreter_budget():
+    limits = ExecutionLimits.unbounded()
+
+    assert limits.is_unbounded
+    assert limits.max_steps is None
+    assert limits.max_recursion_depth is None
+    assert limits.max_output_values is None
+    assert limits.max_events is None
+    assert limits.max_variables is None
+    assert limits.max_integer_bits is None
+    assert not ExecutionLimits().is_unbounded
+
+
+def test_unbounded_policy_removes_all_interpreter_ceilings():
+    limits = ExecutionLimits.unbounded()
+
+    many_iterations = evaluate(
+        "for i from 1 to 10001\nend for",
+        limits=limits,
+    )
+    assert many_iterations.ok
+    assert many_iterations.stats.loop_iterations == 10_001
+
+    many_outputs = evaluate("\n".join(["1"] * 1_001), limits=limits)
+    assert many_outputs.ok
+    assert len(many_outputs.values) == 1_001
+
+    many_events = evaluate("\n".join(["@chaos 1"] * 1_001), limits=limits)
+    assert many_events.ok
+    assert len(many_events.events) == 1_001
+
+    many_variables = evaluate(
+        "\n".join(f"value_{index} = {index}" for index in range(257)),
+        limits=limits,
+    )
+    assert many_variables.ok
+    assert len(many_variables.state.variables) == 257
+
+    large_integer = evaluate("large = 2 ** 14285", limits=limits)
+    assert large_integer.ok
+    assert large_integer.state.variables["large"].bit_length() == 14_286
+
+    deeply_nested = NumberNode(1)
+    for _ in range(101):
+        deeply_nested = GroupNode(deeply_nested)
+    interpreter = Interpreter(limits=limits)
+    assert interpreter.interpret(deeply_nested) == 1
+    assert interpreter.stats.peak_recursion_depth == 102
 
 
 def test_new_stats_fields_default_to_zero_for_existing_callers():
@@ -252,6 +303,21 @@ def test_depth_counter_recovers_after_failure():
     assert interpreter._depth == 0
 
 
+def test_nested_loop_iterations_do_not_accumulate_recursion_depth():
+    result = evaluate(
+        "for outer from 1 to 20\n"
+        "for inner from 1 to 20\n"
+        "end for\n"
+        "end for",
+        limits=ExecutionLimits(max_recursion_depth=3),
+    )
+
+    assert result.ok
+    assert result.values == []
+    assert result.stats.loop_iterations == 420
+    assert result.stats.peak_recursion_depth == 3
+
+
 def test_output_budget_exact_limit_succeeds():
     program = compile_source(THREE_STATEMENTS)
     result = execute(program, limits=ExecutionLimits(max_output_values=3))
@@ -312,6 +378,24 @@ def test_event_budget_one_over_fails_transactionally():
     assert result.state is state
     assert result.events == []
     assert result.stats.runtime_events == 1
+
+
+def test_loop_generated_events_hit_budget_transactionally():
+    state = RuntimeState(variables={"kept": 7})
+    result = evaluate(
+        "for i from 1 to 1001\nvalue = i\nend for",
+        state,
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert result.diagnostics[0].message == "Event budget exceeded"
+    assert result.state is state
+    assert result.state.variables == {"kept": 7}
+    assert result.values == []
+    assert result.events == []
+    assert result.stats.runtime_events == 1_000
+    assert result.stats.loop_iterations == 1_001
 
 
 def test_loop_iteration_accounting_charges_steps_before_entry():
@@ -382,6 +466,26 @@ def test_large_for_loop_exhausts_general_step_budget():
         Position(1, 5), Position(1, 6)
     )
     assert result.stats.loop_iterations == 2
+
+
+def test_loop_integer_growth_hits_budget_transactionally():
+    state = RuntimeState(variables={"kept": 7})
+    result = evaluate(
+        "value = 2\n"
+        "for i from 1 to 14\n"
+        "value = value * value\n"
+        "end for",
+        state,
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].kind == DiagnosticKind.LIMIT
+    assert "14285-bit limit" in result.diagnostics[0].message
+    assert result.state is state
+    assert result.state.variables == {"kept": 7}
+    assert result.values == []
+    assert result.events == []
+    assert result.stats.loop_iterations == 14
 
 
 def test_for_counter_obeys_variable_budget_and_scope_recovers():
@@ -482,7 +586,10 @@ def test_default_limits_execute_test_rune():
     source = (REPO_ROOT / "test.rune").read_text()
     result = evaluate(source)
     assert result.ok
-    assert result.values == [42, 42, 25, -3, -2, 42, 626, 0, 1, 1, 1, 2, 1, 0]
+    assert result.values == [
+        42, 42, 25, -3, -2, 42, 626, 0, 1, 1, 1, 2, 1, 0,
+        5, 4, 3, 1, 3, 5, 1, 3, 4,
+    ]
 
 
 def test_cli_exits_with_status_1_for_a_limit_error(capsys):
