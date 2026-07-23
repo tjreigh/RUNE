@@ -1,3 +1,5 @@
+"""Ephemeral lexical binding frames layered over persistent runtime state."""
+
 from contextlib import contextmanager
 from dataclasses import dataclass
 

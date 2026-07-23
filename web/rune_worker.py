@@ -1,13 +1,14 @@
 """RUNE-specific layer on top of web/isolation.py.
 
-This is the only module in web/ that touches the core (src/). It inserts
-src/ onto sys.path at import time so it can import runtime/limits/
-diagnostics without needing PYTHONPATH set externally -- mirroring exactly
-what pytest's `pythonpath` ini option already does for the test suite.
+This is the only module in web/ that touches the core package. It inserts
+src/ onto sys.path at import time so a source checkout can import ``rune``
+without relying on an editable install or externally configured PYTHONPATH.
 """
 
 import json
 import logging
+import multiprocessing
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,10 +17,10 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from diagnostics import DiagnosticKind, RuneError  # noqa: E402
-from limits import ExecutionLimits  # noqa: E402
-from runtime import compile_source, evaluate  # noqa: E402
-from runtime_state import RuntimeState  # noqa: E402
+from rune.diagnostics import DiagnosticKind, RuneError  # noqa: E402
+from rune.limits import ExecutionLimits  # noqa: E402
+from rune.runtime import compile_source, evaluate  # noqa: E402
+from rune.runtime_state import RuntimeState  # noqa: E402
 
 from isolation import IsolationStatus, run_isolated  # noqa: E402
 
@@ -29,6 +30,7 @@ MAX_RESPONSE_BYTES = 64 * 1024
 MAX_WORKER_ADDRESS_SPACE_BYTES = 192 * 1024 * 1024
 MAX_WORKER_CPU_SECONDS = 3
 MAX_WORKER_FILE_BYTES = 1_000_000
+MAX_WORKER_OPEN_FILES = 64
 
 
 def _lower_hard_resource_limit(resource_module, resource_kind, requested) -> None:
@@ -63,8 +65,25 @@ def _apply_worker_resource_limits() -> None:
         resource, resource.RLIMIT_CPU, MAX_WORKER_CPU_SECONDS
     )
     _lower_hard_resource_limit(
+        resource, resource.RLIMIT_NOFILE, MAX_WORKER_OPEN_FILES
+    )
+    _lower_hard_resource_limit(
         resource, resource.RLIMIT_AS, MAX_WORKER_ADDRESS_SPACE_BYTES
     )
+
+
+def _prepare_spawned_worker(result_path: Path) -> None:
+    """Constrain process-local ambient state in the real spawned child."""
+    if multiprocessing.parent_process() is None:
+        return
+    null_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(null_fd, 1)
+        os.dup2(null_fd, 2)
+    finally:
+        if null_fd > 2:
+            os.close(null_fd)
+    os.chdir(result_path.parent)
 
 
 def _atomic_write_json(path: Path, obj) -> None:
@@ -122,6 +141,7 @@ def _worker_entrypoint(result_path, source, state_dict, evaluator=evaluate):
     fresh."""
     try:
         _apply_worker_resource_limits()
+        _prepare_spawned_worker(result_path)
         state = RuntimeState(
             chaos_threshold=state_dict.get("chaos_threshold", 1),
             variables=state_dict.get("variables", {}),

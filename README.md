@@ -194,7 +194,7 @@ events, and wall-clock time so one chaotic program cannot eat the server.
 Trusted local runs can remove RUNE's interpreter budgets explicitly:
 
 ```sh
-.venv/bin/python src/rune.py program.rune --unbounded
+.venv/bin/rune program.rune --unbounded
 ```
 
 Normal command-line and REPL runs remain bounded. `--unbounded` allows a
@@ -208,10 +208,12 @@ RUNE requires Python 3.12 or newer.
 
 ```sh
 scripts/setup.sh
-.venv/bin/python src/rune.py test.rune
+.venv/bin/rune test.rune
 ```
 
-Start the terminal REPL with `.venv/bin/python src/rune.py --repl`, or launch the web REPL with:
+The editable install created by `scripts/setup.sh` also exposes the public
+runtime API as `import rune` and supports `python -m rune`. Start the terminal
+REPL with `.venv/bin/rune --repl`, or launch the web REPL with:
 
 ```sh
 scripts/run-web.sh

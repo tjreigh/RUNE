@@ -1,10 +1,10 @@
 import pytest
 
-from lexer import Lexer
-from parser import Parser
-from interpreter import Interpreter, _BreakSignal, _ContinueSignal
-from tokens import Token, TokenType
-from ast_nodes import (
+from rune.lexer import Lexer
+from rune.parser import Parser
+from rune.interpreter import Interpreter, _BreakSignal, _ContinueSignal
+from rune.tokens import Token, TokenType
+from rune.ast_nodes import (
     BinaryOpNode,
     ComparisonNode,
     LogicalOpNode,
@@ -15,9 +15,9 @@ from ast_nodes import (
     BreakNode,
     ContinueNode,
 )
-from diagnostics import RuneInternalError, RuneRuntimeError
-from runtime_state import RuntimeState
-from spans import Position, SourceSpan
+from rune.diagnostics import RuneInternalError, RuneRuntimeError
+from rune.runtime_state import RuntimeState
+from rune.spans import Position, SourceSpan
 
 
 def _run(src):

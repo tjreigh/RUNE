@@ -3,13 +3,15 @@ from pathlib import Path
 
 import pytest
 
-import rune
-from runtime import compile_source, execute, evaluate, RuntimeState
-from limits import ExecutionLimits, ExecutionStats
-from interpreter import Interpreter
-from ast_nodes import GroupNode, NumberNode
-from diagnostics import DiagnosticKind, RuneLimitError
-from spans import Position, SourceSpan
+from rune import cli
+from rune.runtime import compile_source, execute, evaluate, RuntimeState
+from rune.limits import ExecutionLimits, ExecutionStats
+from rune.interpreter import Interpreter
+from rune.ast_nodes import GroupNode, NumberNode
+from rune.diagnostics import DiagnosticKind, RuneLimitError
+from rune.spans import Position, SourceSpan
+
+rune = cli
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

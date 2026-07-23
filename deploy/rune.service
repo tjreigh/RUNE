@@ -1,18 +1,21 @@
 [Unit]
 Description=RUNE Web REPL
-Wants=network-online.target
-After=network-online.target
+After=local-fs.target
 
 [Service]
 Type=simple
 User=@@SERVICE_USER@@
-Group=@@SERVICE_USER@@
+Group=@@PROXY_GROUP@@
 WorkingDirectory=@@APP_DIR@@
+RuntimeDirectory=@@SERVICE_NAME@@
+RuntimeDirectoryMode=0750
 
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 
-ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn app:app --app-dir @@APP_DIR@@/web --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-server-header --limit-concurrency 32 --backlog 64 --timeout-keep-alive 5
+# The socket directory is accessible only to the runtime user and proxy group,
+# so every possible peer is trusted to provide Caddy's forwarding headers.
+ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn app:app --app-dir @@APP_DIR@@/web --uds /run/@@SERVICE_NAME@@/rune.sock --workers 1 --proxy-headers --forwarded-allow-ips=* --no-server-header --limit-concurrency 32 --backlog 64 --timeout-keep-alive 5
 
 Restart=on-failure
 RestartSec=3
@@ -22,7 +25,7 @@ KillMode=control-group
 NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-PrivateTmp=true
+PrivateNetwork=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
@@ -36,21 +39,33 @@ ProtectProc=invisible
 ProcSubset=pid
 RestrictSUIDSGID=true
 RestrictRealtime=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
-IPAddressAllow=localhost
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 LockPersonality=true
+MemoryDenyWriteExecute=true
 RemoveIPC=true
-UMask=0077
+UMask=0007
+
+# Give each service start a fresh, size-bounded, non-executable scratch area.
+TemporaryFileSystem=/tmp:rw,nosuid,nodev,noexec,size=32M,mode=1777
+TemporaryFileSystem=/var/tmp:rw,nosuid,nodev,noexec,size=8M,mode=1777
+
+# A future interpreter regression must not be able to fill the host journal.
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
 
 # Tune these for the VPS if necessary. The cgroup limits include disposable
 # evaluator subprocesses, not just the Uvicorn parent.
+MemoryHigh=448M
 MemoryMax=512M
 MemorySwapMax=0
 TasksMax=64
 CPUQuota=100%
-LimitNOFILE=1024
+LimitNOFILE=256
 
 [Install]
 WantedBy=multi-user.target

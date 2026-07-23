@@ -1,6 +1,6 @@
 import pytest
 
-from spans import Position, SourceSpan
+from rune.spans import Position, SourceSpan
 
 
 def test_zero_width_span():

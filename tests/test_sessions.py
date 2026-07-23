@@ -150,6 +150,7 @@ def test_variable_count_and_serialized_size_are_bounded():
         {"chaos_threshold": "1"},
         {"chaos_threshold": 1, "variables": []},
         {"chaos_threshold": 1, "variables": {"answer": "42"}},
+        {"chaos_threshold": 1, "unexpected": True},
     ],
 )
 def test_structurally_invalid_evaluator_state_is_rejected(state):

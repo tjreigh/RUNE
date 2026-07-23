@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from collections.abc import Mapping
 
-from spans import SourceSpan
+from .spans import SourceSpan
 
 
 @dataclass(frozen=True, init=False)

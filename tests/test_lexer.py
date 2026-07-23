@@ -1,14 +1,14 @@
 import pytest
 
-from lexer import (
+from rune.lexer import (
     Lexer,
     MAX_INTEGER_LITERAL_BITS,
     MAX_INTEGER_LITERAL_DIGITS,
     MAX_PREFIXED_INTEGER_LITERAL_DIGITS,
 )
-from tokens import TokenType
-from spans import Position, SourceSpan
-from diagnostics import RuneLexError
+from rune.tokens import TokenType
+from rune.spans import Position, SourceSpan
+from rune.diagnostics import RuneLexError
 
 
 def _tokenize(src):

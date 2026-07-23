@@ -1,5 +1,5 @@
-from tokens import TokenType
-from ast_nodes import (
+from .tokens import TokenType
+from .ast_nodes import (
     BinaryOpNode,
     NumberNode,
     StringNode,
@@ -21,8 +21,8 @@ from ast_nodes import (
     ReturnNode,
     ProgramNode,
 )
-from diagnostics import RuneParseError
-from spans import SourceSpan
+from .diagnostics import RuneParseError
+from .spans import SourceSpan
 
 MAX_EXPRESSION_NESTING = 100
 MAX_BLOCK_NESTING = 100

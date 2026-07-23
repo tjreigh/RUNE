@@ -1,7 +1,7 @@
-from tokens import Token, TokenType
-from spans import Position, SourceSpan
-from diagnostics import RuneLexError
-from limits import DEFAULT_MAX_INTEGER_BITS
+from .tokens import Token, TokenType
+from .spans import Position, SourceSpan
+from .diagnostics import RuneLexError
+from .limits import DEFAULT_MAX_INTEGER_BITS
 
 MAX_INTEGER_LITERAL_DIGITS = 4_300
 MAX_INTEGER_LITERAL_BITS = DEFAULT_MAX_INTEGER_BITS

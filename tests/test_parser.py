@@ -1,9 +1,9 @@
 import pytest
 
-from lexer import Lexer
-from parser import Parser, MAX_BLOCK_NESTING, MAX_EXPRESSION_NESTING
-from tokens import TokenType
-from ast_nodes import (
+from rune.lexer import Lexer
+from rune.parser import Parser, MAX_BLOCK_NESTING, MAX_EXPRESSION_NESTING
+from rune.tokens import TokenType
+from rune.ast_nodes import (
     NumberNode,
     StringNode,
     BinaryOpNode,
@@ -22,8 +22,8 @@ from ast_nodes import (
     ContinueNode,
     ProgramNode,
 )
-from diagnostics import RuneParseError
-from spans import Position, SourceSpan
+from rune.diagnostics import RuneParseError
+from rune.spans import Position, SourceSpan
 
 
 def _parse(src):

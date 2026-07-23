@@ -1,0 +1,8 @@
+# Merge this option into the one global options block at the beginning of
+# /etc/caddy/Caddyfile. Do not add a second global block.
+#
+# Caddy's default admin endpoint is unauthenticated localhost TCP. RUNE runs
+# untrusted programs, so bind administration to a Caddy-only Unix socket.
+{
+	admin unix//run/caddy/admin.sock
+}

@@ -43,6 +43,7 @@ echo "Installing dev + web dependencies..."
 
 echo
 echo "Done. Try:"
+echo "  .venv/bin/rune test.rune  # run a RUNE program"
 echo "  scripts/test.sh       # run the test suite"
 echo "  scripts/coverage.sh   # generate a coverage report"
 echo "  scripts/run-web.sh    # start the local web REPL"

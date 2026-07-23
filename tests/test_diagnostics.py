@@ -1,7 +1,7 @@
 import pytest
 
-from spans import Position, SourceSpan
-from diagnostics import (
+from rune.spans import Position, SourceSpan
+from rune.diagnostics import (
     Diagnostic,
     DiagnosticKind,
     RuneError,

@@ -1,3 +1,6 @@
+"""Abstract syntax tree nodes for RUNE source."""
+
+
 class SpannedNode:
     """Shared source-range behavior for AST nodes."""
     def _set_span(self, span=None):

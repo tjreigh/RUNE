@@ -17,7 +17,7 @@
 		Strict-Transport-Security "max-age=31536000"
 	}
 
-	reverse_proxy 127.0.0.1:8000 {
+	reverse_proxy unix//run/@@SERVICE_NAME@@/rune.sock {
 		transport http {
 			dial_timeout 2s
 			response_header_timeout 5s

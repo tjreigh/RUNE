@@ -1,12 +1,12 @@
 import pytest
 
-from bindings import BindingEnvironment
-from diagnostics import RuneLimitError, RuneRuntimeError
-from interpreter import Interpreter
-from lexer import Lexer
-from limits import ExecutionLimits
-from parser import Parser
-from runtime_state import RuntimeState
+from rune.bindings import BindingEnvironment
+from rune.diagnostics import RuneLimitError, RuneRuntimeError
+from rune.interpreter import Interpreter
+from rune.lexer import Lexer
+from rune.limits import ExecutionLimits
+from rune.parser import Parser
+from rune.runtime_state import RuntimeState
 
 
 def _parse(source):

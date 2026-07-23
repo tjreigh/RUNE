@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from spans import SourceSpan
+from .spans import SourceSpan
 
 
 class DiagnosticKind(Enum):

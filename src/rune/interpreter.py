@@ -1,5 +1,5 @@
-from tokens import TokenType
-from ast_nodes import (
+from .tokens import TokenType
+from .ast_nodes import (
     BinaryOpNode,
     NumberNode,
     StringNode,
@@ -21,10 +21,10 @@ from ast_nodes import (
     ReturnNode,
     ProgramNode,
 )
-from diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
-from runtime_state import RuntimeState, RuntimeEvent
-from limits import ExecutionLimits, ExecutionStats
-from bindings import BindingEnvironment
+from .diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
+from .runtime_state import RuntimeState, RuntimeEvent
+from .limits import ExecutionLimits, ExecutionStats
+from .bindings import BindingEnvironment
 
 
 class _LoopControlSignal(Exception):

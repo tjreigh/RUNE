@@ -1,7 +1,9 @@
 from pathlib import Path
 
-import rune
-from limits import ExecutionLimits
+from rune import cli
+from rune.limits import ExecutionLimits
+
+rune = cli
 
 TEST_RUNE_SOURCE = (
     Path(__file__).resolve().parent.parent / "test.rune"

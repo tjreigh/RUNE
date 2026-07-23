@@ -4,21 +4,21 @@ RUNE (Runtime Unicode Numeric Evaluation)
 A language where everything collapses to ASCII sums
 
 Usage:
-    python3 rune.py <file.rune>               # Run a RUNE file
-    python3 rune.py <file.rune> --verbose     # Show execution details
-    python3 rune.py <file.rune> --show-ast    # Show Abstract Syntax Tree
-    python3 rune.py <file.rune> --show-tokens # Show token stream
-    python3 rune.py <file.rune> --unbounded   # Disable interpreter budgets
-    python3 rune.py --repl                    # Interactive REPL mode
+    rune <file.rune>               # Run a RUNE file
+    rune <file.rune> --verbose     # Show execution details
+    rune <file.rune> --show-ast    # Show Abstract Syntax Tree
+    rune <file.rune> --show-tokens # Show token stream
+    rune <file.rune> --unbounded   # Disable interpreter budgets
+    rune --repl                    # Interactive REPL mode
 """
 
 import sys
 import argparse
 from pathlib import Path
 
-from runtime import RuntimeState, compile_source, execute, evaluate
-from diagnostics import RuneError, Diagnostic, DiagnosticKind
-from limits import ExecutionLimits
+from .runtime import RuntimeState, compile_source, execute, evaluate
+from .diagnostics import RuneError, Diagnostic, DiagnosticKind
+from .limits import ExecutionLimits
 
 _ERROR_LABELS = {
     DiagnosticKind.LEX: "Lex error",
@@ -177,15 +177,16 @@ def repl(limits=None):
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
+        prog="rune",
         description="RUNE (Runtime Unicode Numeric Evaluation)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python3 rune.py program.rune              # Run a RUNE file
-    python3 rune.py program.rune --verbose    # Show execution details
-    python3 rune.py program.rune --show-ast   # Show Abstract Syntax Tree
-    python3 rune.py program.rune --unbounded  # Trusted run without budgets
-    python3 rune.py --repl                    # Interactive REPL mode
+    rune program.rune              # Run a RUNE file
+    rune program.rune --verbose    # Show execution details
+    rune program.rune --show-ast   # Show Abstract Syntax Tree
+    rune program.rune --unbounded  # Trusted run without budgets
+    rune --repl                    # Interactive REPL mode
         """
     )
     

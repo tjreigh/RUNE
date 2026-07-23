@@ -20,8 +20,8 @@ def _memory_error_evaluator(source, state=None, limits=None):
 def _unbounded_rune_evaluator(source, state=None, limits=None):
     """Test-only evaluator proving the process deadline is independent of
     interpreter budgets."""
-    from limits import ExecutionLimits
-    from runtime import evaluate
+    from rune.limits import ExecutionLimits
+    from rune.runtime import evaluate
 
     return evaluate(source, state=state, limits=ExecutionLimits.unbounded())
 
@@ -44,6 +44,7 @@ def _resource_limit_probe(result_path):
             "address_space": resource.getrlimit(resource.RLIMIT_AS),
             "cpu": resource.getrlimit(resource.RLIMIT_CPU),
             "file_size": resource.getrlimit(resource.RLIMIT_FSIZE),
+            "open_files": resource.getrlimit(resource.RLIMIT_NOFILE),
             "core_dump": resource.getrlimit(resource.RLIMIT_CORE),
         },
     )
@@ -56,12 +57,14 @@ def test_linux_worker_resource_limits_are_made_irreversible(monkeypatch):
         2: (-1, -1),
         3: (-1, -1),
         4: (-1, -1),
+        5: (-1, -1),
     }
     fake_resource = SimpleNamespace(
         RLIMIT_CORE=1,
         RLIMIT_FSIZE=2,
         RLIMIT_CPU=3,
         RLIMIT_AS=4,
+        RLIMIT_NOFILE=5,
         RLIM_INFINITY=-1,
         getrlimit=lambda kind: limits[kind],
         setrlimit=lambda kind, limits: calls.append((kind, limits)),
@@ -80,6 +83,10 @@ def test_linux_worker_resource_limits_are_made_irreversible(monkeypatch):
         (
             fake_resource.RLIMIT_CPU,
             (rune_worker.MAX_WORKER_CPU_SECONDS, rune_worker.MAX_WORKER_CPU_SECONDS),
+        ),
+        (
+            fake_resource.RLIMIT_NOFILE,
+            (rune_worker.MAX_WORKER_OPEN_FILES, rune_worker.MAX_WORKER_OPEN_FILES),
         ),
         (
             fake_resource.RLIMIT_AS,
@@ -104,6 +111,63 @@ def test_resource_limit_respects_lower_inherited_hard_limit():
     assert calls == [(7, (100, 100))]
 
 
+def test_direct_worker_calls_do_not_redirect_or_change_directory(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(rune_worker.multiprocessing, "parent_process", lambda: None)
+    monkeypatch.setattr(
+        rune_worker.os,
+        "open",
+        lambda *args, **kwargs: pytest.fail("main-process output was redirected"),
+    )
+    original = rune_worker.os.getcwd()
+
+    rune_worker._prepare_spawned_worker(tmp_path / "result.json")
+
+    assert rune_worker.os.getcwd() == original
+
+
+def test_spawned_worker_redirects_output_and_enters_private_directory(
+    monkeypatch, tmp_path
+):
+    calls = []
+    monkeypatch.setattr(
+        rune_worker.multiprocessing,
+        "parent_process",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        rune_worker.os,
+        "open",
+        lambda path, flags: calls.append(("open", path, flags)) or 9,
+    )
+    monkeypatch.setattr(
+        rune_worker.os,
+        "dup2",
+        lambda source, target: calls.append(("dup2", source, target)),
+    )
+    monkeypatch.setattr(
+        rune_worker.os,
+        "close",
+        lambda descriptor: calls.append(("close", descriptor)),
+    )
+    monkeypatch.setattr(
+        rune_worker.os,
+        "chdir",
+        lambda path: calls.append(("chdir", path)),
+    )
+
+    rune_worker._prepare_spawned_worker(tmp_path / "result.json")
+
+    assert calls == [
+        ("open", rune_worker.os.devnull, rune_worker.os.O_WRONLY),
+        ("dup2", 9, 1),
+        ("dup2", 9, 2),
+        ("close", 9),
+        ("chdir", tmp_path),
+    ]
+
+
 @pytest.mark.skipif(
     not sys.platform.startswith("linux"),
     reason="production rlimits are Linux-specific",
@@ -116,6 +180,7 @@ def test_spawned_linux_child_reports_effective_hard_resource_limits():
         "address_space": rune_worker.MAX_WORKER_ADDRESS_SPACE_BYTES,
         "cpu": rune_worker.MAX_WORKER_CPU_SECONDS,
         "file_size": rune_worker.MAX_WORKER_FILE_BYTES,
+        "open_files": rune_worker.MAX_WORKER_OPEN_FILES,
         "core_dump": 0,
     }
     for name, maximum in expected_maximums.items():

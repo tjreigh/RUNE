@@ -1,18 +1,18 @@
 import pytest
 
-from ast_nodes import (
+from rune.ast_nodes import (
     BinaryOpNode,
     FunctionCallNode,
     FunctionDefinitionNode,
     ReturnNode,
 )
-from diagnostics import RuneInternalError, RuneParseError, RuneRuntimeError
-from interpreter import Interpreter
-from lexer import Lexer
-from limits import ExecutionLimits
-from parser import MAX_EXPRESSION_NESTING, Parser
-from runtime import RuntimeState, evaluate
-from spans import Position, SourceSpan
+from rune.diagnostics import RuneInternalError, RuneParseError, RuneRuntimeError
+from rune.interpreter import Interpreter
+from rune.lexer import Lexer
+from rune.limits import ExecutionLimits
+from rune.parser import MAX_EXPRESSION_NESTING, Parser
+from rune.runtime import RuntimeState, evaluate
+from rune.spans import Position, SourceSpan
 
 
 def _parse(source):

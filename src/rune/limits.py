@@ -1,3 +1,5 @@
+"""Deterministic execution budgets and statistics."""
+
 from dataclasses import dataclass
 
 

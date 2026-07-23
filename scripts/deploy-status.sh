@@ -7,15 +7,18 @@ set -eu
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     echo "Usage: [PUBLIC_URL=https://rune.tjreigh.mobi] $0"
-    echo "Optional: APP_DIR, SERVICE_NAME, LOCAL_URL, PYTHON_BIN"
+    echo "Optional: APP_DIR, SERVICE_NAME, LOCAL_URL, CURL_SOCKET, PYTHON_BIN"
     exit 0
 fi
 
-APP_DIR="${APP_DIR:-/srv/rune/app}"
+APP_DIR="${APP_DIR:-/srv/rune/current}"
 SERVICE_NAME="${SERVICE_NAME:-rune}"
-LOCAL_URL="${LOCAL_URL:-http://127.0.0.1:8000}"
+LOCAL_URL="${LOCAL_URL:-http://localhost}"
+CURL_SOCKET="${CURL_SOCKET:-/run/$SERVICE_NAME/rune.sock}"
 PUBLIC_URL="${PUBLIC_URL:-}"
-PYTHON_BIN="${PYTHON_BIN:-$APP_DIR/.venv/bin/python}"
+# The status helper may inspect an untrusted target release. Never run its
+# virtualenv interpreter with the caller's (possibly root) privileges.
+PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
 SMOKE_SCRIPT="$APP_DIR/scripts/deploy-smoke-test.sh"
 
 if ! command -v systemctl >/dev/null 2>&1; then
@@ -33,9 +36,11 @@ if [ ! -x "$SMOKE_SCRIPT" ]; then
 fi
 
 echo
-BASE_URL="$LOCAL_URL" PYTHON_BIN="$PYTHON_BIN" "$SMOKE_SCRIPT"
+BASE_URL="$LOCAL_URL" CURL_SOCKET="$CURL_SOCKET" \
+    PYTHON_BIN="$PYTHON_BIN" "$SMOKE_SCRIPT"
 
 if [ -n "$PUBLIC_URL" ]; then
     echo
-    BASE_URL="$PUBLIC_URL" PYTHON_BIN="$PYTHON_BIN" "$SMOKE_SCRIPT"
+    BASE_URL="$PUBLIC_URL" CURL_SOCKET= \
+        PYTHON_BIN="$PYTHON_BIN" "$SMOKE_SCRIPT"
 fi

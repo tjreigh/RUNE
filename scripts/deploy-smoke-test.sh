@@ -6,8 +6,11 @@ set -eu
 # Examples:
 #   scripts/deploy-smoke-test.sh
 #   BASE_URL=https://rune.tjreigh.mobi scripts/deploy-smoke-test.sh
+#   BASE_URL=http://localhost CURL_SOCKET=/run/rune/rune.sock \
+#     scripts/deploy-smoke-test.sh
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+CURL_SOCKET="${CURL_SOCKET:-}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 BASE_URL="${BASE_URL%/}"
 
@@ -31,25 +34,30 @@ trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 
 CURL_FLAGS="--fail --silent --show-error --connect-timeout 3 --max-time 10 --retry 10 --retry-delay 1 --retry-connrefused"
 
+run_curl() {
+    if [ -n "$CURL_SOCKET" ]; then
+        # shellcheck disable=SC2086
+        curl $CURL_FLAGS --unix-socket "$CURL_SOCKET" "$@"
+    else
+        # shellcheck disable=SC2086
+        curl $CURL_FLAGS "$@"
+    fi
+}
+
 echo "Checking $BASE_URL/ ..."
-# shellcheck disable=SC2086
-curl $CURL_FLAGS "$BASE_URL/" > "$TMP_DIR/index.html"
+run_curl "$BASE_URL/" > "$TMP_DIR/index.html"
 grep -q '<title>RUNE Web REPL</title>' "$TMP_DIR/index.html"
 
 echo "Checking static assets ..."
-# shellcheck disable=SC2086
-curl $CURL_FLAGS "$BASE_URL/static/style.css" > /dev/null
-# shellcheck disable=SC2086
-curl $CURL_FLAGS "$BASE_URL/static/app.js" > /dev/null
+run_curl "$BASE_URL/static/style.css" > /dev/null
+run_curl "$BASE_URL/static/app.js" > /dev/null
 
 echo "Checking compile-only validation ..."
-# shellcheck disable=SC2086
-curl $CURL_FLAGS \
+run_curl \
     -H 'content-type: application/json' \
     -d '{"source":"function answer()\nreturn 42\nend function\nanswer()"}' \
     "$BASE_URL/validate" > "$TMP_DIR/valid.json"
-# shellcheck disable=SC2086
-curl $CURL_FLAGS \
+run_curl \
     -H 'content-type: application/json' \
     -d '{"source":"return 1"}' \
     "$BASE_URL/validate" > "$TMP_DIR/invalid.json"
@@ -73,8 +81,7 @@ if not diagnostics or diagnostics[0].get("kind") != "parse":
 PY
 
 echo "Evaluating 2+2 ..."
-# shellcheck disable=SC2086
-curl $CURL_FLAGS \
+run_curl \
     -H 'content-type: application/json' \
     -d '{"source":"2+2"}' \
     "$BASE_URL/evaluate" > "$TMP_DIR/evaluation.json"
@@ -95,8 +102,7 @@ if response.get("state") != {"chaos_threshold": 1}:
 PY
 
 echo "Evaluating a recursive function ..."
-# shellcheck disable=SC2086
-curl $CURL_FLAGS \
+run_curl \
     -H 'content-type: application/json' \
     -d '{"source":"function factorial(n)\nif (n <= 1)\nreturn 1\nend if\nreturn n * factorial(n - 1)\nend function\nfactorial(5)"}' \
     "$BASE_URL/evaluate" > "$TMP_DIR/function.json"

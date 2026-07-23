@@ -1,3 +1,5 @@
+"""Source positions and half-open spans."""
+
 from dataclasses import dataclass
 
 

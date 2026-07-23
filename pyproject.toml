@@ -1,12 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "rune"
 version = "0.6.0"
 description = "RUNE (Runtime Unicode Numeric Evaluation): a chaotic programming language"
+readme = "README.md"
 requires-python = ">=3.12"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4", "pytest-cov>=5.0"]
-web = ["fastapi>=0.110", "uvicorn>=0.27", "httpx2>=2.0", "pydantic>=2"]
+dev = ["pytest>=7.4", "pytest-cov>=5.0", "httpx2>=2.0"]
+web = ["fastapi>=0.110", "uvicorn>=0.27", "pydantic>=2"]
+
+[project.scripts]
+rune = "rune.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "web"]

@@ -118,6 +118,8 @@ class SessionStore:
     def _validate_state(self, state: dict) -> None:
         if not isinstance(state, dict):
             raise InvalidSessionStateError("invalid evaluator state")
+        if set(state) - {"chaos_threshold", "variables"}:
+            raise InvalidSessionStateError("invalid evaluator state")
         threshold = state.get("chaos_threshold")
         variables = state.get("variables", {})
         if type(threshold) is not int or threshold < 0:

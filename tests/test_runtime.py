@@ -2,16 +2,16 @@ import json
 
 import pytest
 
-from runtime import (
+from rune.runtime import (
     RuntimeState,
     RuntimeEvent,
     CompiledProgram,
     compile_source,
     evaluate,
 )
-from diagnostics import DiagnosticKind
-from ast_nodes import BinaryOpNode
-from spans import Position, SourceSpan
+from rune.diagnostics import DiagnosticKind
+from rune.ast_nodes import BinaryOpNode
+from rune.spans import Position, SourceSpan
 
 
 def test_single_output_normalization():

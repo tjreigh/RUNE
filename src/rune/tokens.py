@@ -1,6 +1,6 @@
 from enum import Enum
 
-from spans import SourceSpan
+from .spans import SourceSpan
 
 class TokenType(Enum):
     """All possible token types in RUNE"""

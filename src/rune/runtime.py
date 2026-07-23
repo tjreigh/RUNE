@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from typing import Any
 
-from lexer import Lexer
-from parser import Parser
-from interpreter import Interpreter
-from diagnostics import RuneError
-from runtime_state import RuntimeState, RuntimeEvent
-from limits import ExecutionLimits, ExecutionStats
+from .lexer import Lexer
+from .parser import Parser
+from .interpreter import Interpreter
+from .diagnostics import RuneError
+from .runtime_state import RuntimeState, RuntimeEvent
+from .limits import ExecutionLimits, ExecutionStats
 
 __all__ = [
     "RuntimeState",
