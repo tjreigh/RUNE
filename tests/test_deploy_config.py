@@ -127,7 +127,9 @@ def test_production_lock_is_complete_and_hash_only():
     assert any(line.startswith("uvicorn==") for line in requirement_lines)
     assert any(line.startswith("setuptools==") for line in requirement_lines)
     hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", lock)
-    assert len(hashes) == len(requirement_lines)
+    assert len(hashes) >= len(requirement_lines)
+    assert lock.count("pydantic_core") == 0
+    assert lock.count("--hash=sha256:") == len(requirement_lines) + 2
 
 
 def test_http_test_client_dependency_is_not_in_production_extra():

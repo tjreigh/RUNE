@@ -15,6 +15,7 @@ set -eu
 
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
+unset PYTHONHOME PYTHONPATH
 
 INSTALL_PATH="${RUNE_DEPLOY_INSTALL_PATH:-/usr/local/sbin/rune-deploy}"
 SOURCE_DIR="${RUNE_SOURCE_DIR:-/srv/rune/source}"
@@ -73,7 +74,7 @@ if [ "$(stat -c '%u:%a' "$SCRIPT_PATH")" != "0:755" ]; then
 fi
 
 for command in git runuser systemctl find readlink stat mktemp mv ln chown chmod \
-    dirname pgrep pkill; do
+    dirname pgrep pkill uname; do
     command -v "$command" >/dev/null 2>&1 ||
         fail "required command not found: $command"
 done
@@ -81,6 +82,11 @@ for account in "$DEPLOY_USER" "$SERVICE_USER"; do
     id "$account" >/dev/null 2>&1 || fail "account does not exist: $account"
 done
 [ -x "$PYTHON_BIN" ] || fail "Python executable not found: $PYTHON_BIN"
+[ "$(uname -m)" = "x86_64" ] ||
+    fail "the checked-in production lock supports Linux x86_64 only"
+"$PYTHON_BIN" -c 'import sys; raise SystemExit(
+    sys.version_info[:2] < (3, 12) or sys.version_info[:2] > (3, 14)
+)' || fail "the checked-in production lock supports CPython 3.12 through 3.14"
 [ -d "$SOURCE_DIR/.git" ] || fail "deployment checkout not found: $SOURCE_DIR"
 [ -d "$BUILD_DIR" ] || fail "build directory not found: $BUILD_DIR"
 [ -d "$RELEASES_DIR" ] || fail "release directory not found: $RELEASES_DIR"

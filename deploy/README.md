@@ -14,7 +14,7 @@ on the VPS.
 The checked-in production lock supports:
 
 - Debian or Ubuntu with systemd and cgroup v2
-- CPython 3.12
+- CPython 3.12 through 3.14
 - Linux x86_64
 - Caddy 2.10 or newer
 
@@ -28,7 +28,7 @@ systemd --version
 stat -fc %T /sys/fs/cgroup
 ```
 
-`uname -m` must report `x86_64`, Python must be 3.12, and the cgroup filesystem
+`uname -m` must report `x86_64`, Python must be 3.12–3.14, and the cgroup filesystem
 should report `cgroup2fs`. Regenerate and review
 `requirements/production.txt` before using another architecture or Python
 minor version.
