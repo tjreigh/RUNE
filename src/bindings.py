@@ -8,14 +8,16 @@ class BindingFrame:
 
     values: dict[str, int]
     captures_assignments: bool = False
+    isolates_parent_bindings: bool = False
 
 
 class BindingEnvironment:
     """Stack of ephemeral lexical bindings.
 
     Persistent session variables remain in ``RuntimeState`` and are supplied
-    as the root mapping during lookup. Loop counters use non-capturing frames;
-    future function scopes can opt into capturing otherwise-new assignments.
+    as the root mapping during lookup. Loop counters use non-capturing frames.
+    Function frames capture otherwise-new assignments and isolate reads from
+    caller frames, while still falling back to the persistent root.
     """
 
     def __init__(self):
@@ -30,8 +32,17 @@ class BindingEnvironment:
         return sum(len(frame.values) for frame in self._frames)
 
     @contextmanager
-    def frame(self, values=None, captures_assignments=False):
-        frame = BindingFrame(dict(values or {}), captures_assignments)
+    def frame(
+        self,
+        values=None,
+        captures_assignments=False,
+        isolates_parent_bindings=False,
+    ):
+        frame = BindingFrame(
+            dict(values or {}),
+            captures_assignments,
+            isolates_parent_bindings,
+        )
         self._frames.append(frame)
         try:
             yield frame
@@ -45,6 +56,8 @@ class BindingEnvironment:
         for frame in reversed(self._frames):
             if name in frame.values:
                 return frame.values[name]
+            if frame.isolates_parent_bindings:
+                break
         if name in root:
             return root[name]
         raise KeyError(name)
@@ -54,4 +67,6 @@ class BindingEnvironment:
         for frame in reversed(self._frames):
             if name in frame.values or frame.captures_assignments:
                 return frame
+            if frame.isolates_parent_bindings:
+                break
         return None

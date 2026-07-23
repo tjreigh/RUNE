@@ -16,6 +16,9 @@ from ast_nodes import (
     ForNode,
     BreakNode,
     ContinueNode,
+    FunctionDefinitionNode,
+    FunctionCallNode,
+    ReturnNode,
     ProgramNode,
 )
 from diagnostics import RuneParseError
@@ -55,8 +58,8 @@ class Parser:
     Parses tokens into an Abstract Syntax Tree (AST)
     Grammar:
         program   : statement* EOF
-        statement : pragma | if_stmt | while_stmt | for_stmt | break_stmt |
-                    continue_stmt | assignment | expr
+        statement : pragma | if_stmt | while_stmt | for_stmt | function_stmt |
+                    return_stmt | break_stmt | continue_stmt | assignment | expr
         assignment: IDENTIFIER ASSIGN expr
         pragma    : PRAGMA CHAOS NUMBER
         if_stmt   : IF LPAREN expr RPAREN statement*
@@ -67,6 +70,10 @@ class Parser:
                     statement* END FOR
         break_stmt: BREAK
         continue_stmt: CONTINUE
+        function_stmt: FUNCTION IDENTIFIER LPAREN parameters? RPAREN
+                       statement* END FUNCTION
+        parameters: IDENTIFIER (COMMA IDENTIFIER)*
+        return_stmt: RETURN expr
         expr      : logical_or
         logical_or: logical_and (OR logical_and)*
         logical_and: logical_not (AND logical_not)*
@@ -80,7 +87,9 @@ class Parser:
         term      : unary ((MULT | DIV | MOD) unary)*
         unary     : (MINUS | BIT_NOT) unary | power
         power     : primary (POWER unary)?
-        primary   : NUMBER | STRING | IDENTIFIER | LPAREN expr RPAREN
+        primary   : NUMBER | STRING | call | IDENTIFIER | LPAREN expr RPAREN
+        call      : IDENTIFIER LPAREN arguments? RPAREN
+        arguments : expr (COMMA expr)*
     """
 
     def __init__(self, tokens):
@@ -89,6 +98,8 @@ class Parser:
         self._expression_nesting = 0
         self._block_nesting = 0
         self._loop_depth = 0
+        self._function_depth = 0
+        self._function_names = set()
 
     def current_token(self):
         """Get the current token without consuming it"""
@@ -204,6 +215,10 @@ class Parser:
             return self.while_stmt()
         elif self.current_token().type == TokenType.FOR:
             return self.for_stmt()
+        elif self.current_token().type == TokenType.FUNCTION:
+            return self.function_stmt()
+        elif self.current_token().type == TokenType.RETURN:
+            return self.return_stmt()
         elif self.current_token().type == TokenType.BREAK:
             return self.break_stmt()
         elif self.current_token().type == TokenType.CONTINUE:
@@ -214,6 +229,78 @@ class Parser:
         ):
             return self.assignment()
         return self.expr()
+
+    def function_stmt(self):
+        """Parse a top-level function declaration with a lexical body."""
+        function_token = self.current_token()
+        if self._block_nesting != 0 or self._function_depth != 0:
+            raise RuneParseError(
+                "Function declarations are only valid at the top level",
+                function_token.span,
+            )
+
+        start = function_token.span.start
+        self.eat(TokenType.FUNCTION)
+        name_token = self.current_token()
+        self.eat(TokenType.IDENTIFIER)
+        if name_token.value in self._function_names:
+            raise RuneParseError(
+                f"Function '{name_token.value}' is already defined",
+                name_token.span,
+            )
+        self._function_names.add(name_token.value)
+
+        self.eat(TokenType.LPAREN)
+        parameters = []
+        parameter_names = set()
+        if self.current_token().type != TokenType.RPAREN:
+            while True:
+                parameter = self.current_token()
+                self.eat(TokenType.IDENTIFIER)
+                if parameter.value in parameter_names:
+                    raise RuneParseError(
+                        f"Duplicate parameter '{parameter.value}'",
+                        parameter.span,
+                    )
+                parameter_names.add(parameter.value)
+                parameters.append(parameter.value)
+                if self.current_token().type != TokenType.COMMA:
+                    break
+                self.eat(TokenType.COMMA)
+        self.eat(TokenType.RPAREN)
+
+        previous_loop_depth = self._loop_depth
+        self._loop_depth = 0
+        self._function_depth += 1
+        try:
+            body = self.parse_nested_block({TokenType.END}, function_token)
+        finally:
+            self._function_depth -= 1
+            self._loop_depth = previous_loop_depth
+
+        end_label = self.block_end(TokenType.FUNCTION)
+        return FunctionDefinitionNode(
+            name_token.value,
+            parameters,
+            body,
+            name_span=name_token.span,
+            span=SourceSpan(start, end_label.span.end),
+        )
+
+    def return_stmt(self):
+        """Parse a value-returning statement only inside a function body."""
+        token = self.current_token()
+        if self._function_depth == 0:
+            raise RuneParseError(
+                "'return' is only valid inside a function",
+                token.span,
+            )
+        self.eat(TokenType.RETURN)
+        value = self.expr()
+        return ReturnNode(
+            value,
+            span=SourceSpan(token.span.start, value.span.end),
+        )
 
     def assignment(self):
         """Parse assignment: IDENTIFIER ASSIGN expr."""
@@ -464,6 +551,23 @@ class Parser:
             return StringNode(token.value, span=token.span)
         elif token.type == TokenType.IDENTIFIER:
             self.eat(TokenType.IDENTIFIER)
+            if self.current_token().type == TokenType.LPAREN:
+                self.eat(TokenType.LPAREN)
+                arguments = []
+                if self.current_token().type != TokenType.RPAREN:
+                    while True:
+                        arguments.append(self.parse_nested(self.expr, token))
+                        if self.current_token().type != TokenType.COMMA:
+                            break
+                        self.eat(TokenType.COMMA)
+                closing = self.current_token()
+                self.eat(TokenType.RPAREN)
+                return FunctionCallNode(
+                    token.value,
+                    arguments,
+                    name_span=token.span,
+                    span=SourceSpan(token.span.start, closing.span.end),
+                )
             return VariableNode(token.value, span=token.span)
         elif token.type == TokenType.LPAREN:
             self.eat(TokenType.LPAREN)

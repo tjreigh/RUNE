@@ -203,6 +203,42 @@ class ContinueNode(SpannedNode):
         return "Continue()"
 
 
+class FunctionDefinitionNode(SpannedNode):
+    """Defines a source-local function with named parameters."""
+    def __init__(self, name, parameters, body, name_span=None, span=None):
+        self.name = name
+        self.parameters = parameters
+        self.body = body
+        self.name_span = name_span
+        self._set_span(span)
+
+    def __repr__(self):
+        parameters = ", ".join(self.parameters)
+        return f"Function({self.name}({parameters}), body={self.body})"
+
+
+class FunctionCallNode(SpannedNode):
+    """Calls a source-local function and produces its returned integer."""
+    def __init__(self, name, arguments, name_span=None, span=None):
+        self.name = name
+        self.arguments = arguments
+        self.name_span = name_span
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"Call({self.name}, args={self.arguments})"
+
+
+class ReturnNode(SpannedNode):
+    """Returns one expression value from the active function."""
+    def __init__(self, value, span=None):
+        self.value = value
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"Return({self.value})"
+
+
 class ProgramNode(SpannedNode):
     """Represents a program with multiple statements"""
     def __init__(self, statements, span=None):

@@ -16,6 +16,9 @@ from ast_nodes import (
     ForNode,
     BreakNode,
     ContinueNode,
+    FunctionDefinitionNode,
+    FunctionCallNode,
+    ReturnNode,
     ProgramNode,
 )
 from diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
@@ -40,6 +43,14 @@ class _ContinueSignal(_LoopControlSignal):
     pass
 
 
+class _ReturnSignal(Exception):
+    """Private non-local control flow for one function return value."""
+
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+
 class Interpreter:
     """
     Tree-walking interpreter for RUNE
@@ -60,6 +71,8 @@ class Interpreter:
         self._loop_iterations = 0
         self._bindings = BindingEnvironment()
         self._active_loop_depth = 0
+        self._active_function_depth = 0
+        self._functions = {}
 
     @property
     def stats(self):
@@ -127,6 +140,7 @@ class Interpreter:
         self,
         values=None,
         captures_assignments=False,
+        isolates_parent_bindings=False,
         span=None,
     ):
         """Create an ephemeral lexical frame within the variable budget."""
@@ -141,7 +155,11 @@ class Interpreter:
         maximum = self.limits.max_variables
         if maximum is not None and total_bindings > maximum:
             raise RuneLimitError("Variable budget exceeded", span)
-        return self._bindings.frame(values, captures_assignments)
+        return self._bindings.frame(
+            values,
+            captures_assignments,
+            isolates_parent_bindings,
+        )
 
     def _checked_multiply(self, left, right, span):
         """Reject a definitely oversized product before allocating it.
@@ -268,6 +286,12 @@ class Interpreter:
                 return self.visit_break(node)
             elif isinstance(node, ContinueNode):
                 return self.visit_continue(node)
+            elif isinstance(node, FunctionDefinitionNode):
+                return self.visit_function_definition(node)
+            elif isinstance(node, FunctionCallNode):
+                return self.visit_function_call(node)
+            elif isinstance(node, ReturnNode):
+                return self.visit_return(node)
             elif isinstance(node, ProgramNode):
                 return self.visit_program(node)
             else:
@@ -480,6 +504,8 @@ class Interpreter:
                 raise
             if result is None:
                 continue
+            if self._active_function_depth > 0:
+                continue
             if isinstance(result, list):
                 results.extend(result)
             else:
@@ -563,8 +589,63 @@ class Interpreter:
             raise RuneInternalError("Continue outside active loop", node.span)
         raise _ContinueSignal()
 
+    def visit_function_definition(self, node):
+        """Register a source-local function without executing its body."""
+        self._functions[node.name] = node
+        return None
+
+    def visit_function_call(self, node):
+        """Evaluate arguments and execute a function in a capturing scope."""
+        function = self._functions.get(node.name)
+        if function is None:
+            raise RuneRuntimeError(
+                f"Undefined function '{node.name}'",
+                node.name_span or node.span,
+            )
+        expected = len(function.parameters)
+        received = len(node.arguments)
+        if received != expected:
+            noun = "argument" if expected == 1 else "arguments"
+            raise RuneRuntimeError(
+                f"Function '{node.name}' expects {expected} {noun}, got {received}",
+                node.span,
+            )
+
+        arguments = [self.visit(argument) for argument in node.arguments]
+        bindings = dict(zip(function.parameters, arguments))
+        with self._binding_scope(
+            bindings,
+            captures_assignments=True,
+            isolates_parent_bindings=True,
+            span=node.span,
+        ):
+            previous_loop_depth = self._active_loop_depth
+            self._active_loop_depth = 0
+            self._active_function_depth += 1
+            try:
+                self._exec_block(function.body)
+            except _ReturnSignal as signal:
+                return self._check_integer(signal.value, node.span)
+            finally:
+                self._active_function_depth -= 1
+                self._active_loop_depth = previous_loop_depth
+
+        raise RuneRuntimeError(
+            f"Function '{node.name}' returned no value",
+            function.name_span or function.span,
+        )
+
+    def visit_return(self, node):
+        """Return one evaluated integer from the active function call."""
+        if self._active_function_depth == 0:
+            raise RuneInternalError("Return outside active function", node.span)
+        raise _ReturnSignal(self.visit(node.value))
+
     def visit_program(self, node):
         """Execute a program with multiple statements"""
+        for statement in node.statements:
+            if isinstance(statement, FunctionDefinitionNode):
+                self.visit_function_definition(statement)
         return self._exec_block(node.statements)
 
     def interpret(self, ast):
@@ -573,6 +654,7 @@ class Interpreter:
         it is emitted here instead; a list or None result has already been
         accounted for further down and is returned unchanged."""
         self._check_state()
+        self._functions = {}
         raw = self.visit(ast)
         if raw is None or isinstance(raw, list):
             return raw

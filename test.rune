@@ -49,3 +49,10 @@ break
 end if
 i
 end for
+function factorial(n)
+if (n <= 1)
+return 1
+end if
+return n * factorial(n - 1)
+end function
+factorial(5)

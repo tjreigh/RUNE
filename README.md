@@ -74,7 +74,7 @@ means power, and `^` means bitwise XOR. Precedence runs from low to high:
 |  | `*`, `/`, `%` |
 |  | Prefix `-`, `~` |
 |  | `**` |
-| Highest | Literals, variables, strings, and grouping |
+| Highest | Function calls, literals, variables, strings, and grouping |
 
 Binary operators are left-associative except for right-associative power. Power
 binds tighter than unary minus, so `-2 ** 2` is `-4`, while `(-2) ** 2` is `4`.
@@ -117,8 +117,8 @@ assignment itself produces no output. Reading a name that has not been assigned
 is a runtime error.
 
 Names begin with a letter or underscore and may then contain letters, digits,
-or underscores. Language keywords, including `if`, `while`, `for`, `break`,
-`continue`, and `chaos`, are reserved.
+or underscores. Language keywords, including `if`, `while`, `for`, `function`,
+`return`, `break`, `continue`, and `chaos`, are reserved.
 
 Variables persist between successful inputs in the terminal REPL and within an
 expiring browser session in the web REPL. A failed, timed-out, or rejected
@@ -152,6 +152,36 @@ This outputs `1`, `3`, and `5`. The default step is `1`; a negative step counts
 down, a step aimed away from the endpoint runs zero times, and zero is an
 error. `break` exits the nearest loop and `continue` starts its next iteration.
 Loop blocks use typed endings: `end while` and `end for`.
+
+### Functions and local scope
+
+Declare a function at the top level with named parameters and return one value
+explicitly:
+
+```rune
+function factorial(n)
+if (n <= 1)
+return 1
+end if
+return n * factorial(n - 1)
+end function
+
+factorial(5)
+```
+
+This outputs `120`. Calls are expressions, arguments evaluate from left to
+right, and declarations are available throughout their compilation unit so
+functions can call themselves or one another. Calling an unknown function,
+passing the wrong number of arguments, or reaching `end function` without a
+`return` is a runtime error.
+
+Parameters shadow persistent variables. Any assignment made inside a function
+is local to that call, including assignment to a name that also exists in the
+session; global variables remain readable when they are not shadowed. Local
+frames disappear on return or failure. Function declarations are source-local
+and are not stored in terminal or browser session state, so a later input must
+include declarations it calls. Recursive calls consume the same step,
+recursion, variable, integer, event, and wall-clock budgets as other work.
 
 ### Can RUNE run forever?
 

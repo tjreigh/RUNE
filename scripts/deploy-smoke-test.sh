@@ -42,6 +42,36 @@ curl $CURL_FLAGS "$BASE_URL/static/style.css" > /dev/null
 # shellcheck disable=SC2086
 curl $CURL_FLAGS "$BASE_URL/static/app.js" > /dev/null
 
+echo "Checking compile-only validation ..."
+# shellcheck disable=SC2086
+curl $CURL_FLAGS \
+    -H 'content-type: application/json' \
+    -d '{"source":"function answer()\nreturn 42\nend function\nanswer()"}' \
+    "$BASE_URL/validate" > "$TMP_DIR/valid.json"
+# shellcheck disable=SC2086
+curl $CURL_FLAGS \
+    -H 'content-type: application/json' \
+    -d '{"source":"return 1"}' \
+    "$BASE_URL/validate" > "$TMP_DIR/invalid.json"
+
+"$PYTHON_BIN" - "$TMP_DIR/valid.json" "$TMP_DIR/invalid.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response_file:
+    valid = json.load(response_file)
+with open(sys.argv[2], encoding="utf-8") as response_file:
+    invalid = json.load(response_file)
+
+if valid != {"ok": True, "diagnostics": []}:
+    raise SystemExit(f"valid source failed validation: {valid}")
+if invalid.get("ok") is not False:
+    raise SystemExit(f"invalid source passed validation: {invalid}")
+diagnostics = invalid.get("diagnostics", [])
+if not diagnostics or diagnostics[0].get("kind") != "parse":
+    raise SystemExit(f"expected a parse diagnostic: {invalid}")
+PY
+
 echo "Evaluating 2+2 ..."
 # shellcheck disable=SC2086
 curl $CURL_FLAGS \
@@ -62,6 +92,24 @@ if response.get("values") != [4]:
     raise SystemExit(f"expected values [4], received: {response.get('values')}")
 if response.get("state") != {"chaos_threshold": 1}:
     raise SystemExit(f"unexpected default state: {response.get('state')}")
+PY
+
+echo "Evaluating a recursive function ..."
+# shellcheck disable=SC2086
+curl $CURL_FLAGS \
+    -H 'content-type: application/json' \
+    -d '{"source":"function factorial(n)\nif (n <= 1)\nreturn 1\nend if\nreturn n * factorial(n - 1)\nend function\nfactorial(5)"}' \
+    "$BASE_URL/evaluate" > "$TMP_DIR/function.json"
+
+"$PYTHON_BIN" - "$TMP_DIR/function.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response_file:
+    response = json.load(response_file)
+
+if response.get("ok") is not True or response.get("values") != [120]:
+    raise SystemExit(f"recursive function evaluation failed: {response}")
 PY
 
 echo "RUNE smoke test passed: $BASE_URL"

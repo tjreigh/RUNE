@@ -61,6 +61,15 @@ end if
 i
 end for
 `,
+  functions: `function factorial(n)
+if (n <= 1)
+return 1
+end if
+return n * factorial(n - 1)
+end function
+
+factorial(5)
+`,
   full: `answer = 40
 answer = answer + 2
 answer
@@ -112,6 +121,13 @@ break
 end if
 i
 end for
+function factorial(n)
+if (n <= 1)
+return 1
+end if
+return n * factorial(n - 1)
+end function
+factorial(5)
 `,
 };
 

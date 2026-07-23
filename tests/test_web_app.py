@@ -25,6 +25,48 @@ def test_validation_accepts_valid_source_without_evaluation_fields():
     assert response.json() == {"ok": True, "diagnostics": []}
 
 
+def test_validation_and_evaluation_use_the_function_grammar():
+    client = TestClient(create_app())
+    source = (
+        "function add(a, b)\nreturn a + b\nend function\nadd(20, 22)"
+    )
+
+    validated = client.post("/validate", json={"source": source})
+    evaluated = client.post("/evaluate", json={"source": source})
+
+    assert validated.status_code == 200
+    assert validated.json() == {"ok": True, "diagnostics": []}
+    assert evaluated.status_code == 200
+    assert evaluated.json()["values"] == [42]
+
+
+def test_web_sessions_do_not_persist_function_declarations():
+    client = TestClient(create_app())
+    declared = client.post(
+        "/evaluate",
+        json={
+            "source": (
+                "function answer()\nreturn 42\nend function\nanswer()"
+            )
+        },
+    ).json()
+
+    later = client.post(
+        "/evaluate",
+        json={
+            "source": "answer()",
+            "session_id": declared["session_id"],
+        },
+    )
+
+    assert declared["values"] == [42]
+    assert later.status_code == 200
+    assert later.json()["ok"] is False
+    assert later.json()["diagnostics"][0]["message"] == (
+        "Undefined function 'answer'"
+    )
+
+
 @pytest.mark.parametrize("source", ["", " \t\r\n"])
 def test_validation_keeps_empty_source_neutral(source):
     client = TestClient(create_app())
@@ -599,6 +641,7 @@ def test_root_route_serves_html():
     assert '<option value="expressions">Expressions</option>' in response.text
     assert '<option value="logic">Chaos-aware logic</option>' in response.text
     assert '<option value="loops">Loops</option>' in response.text
+    assert '<option value="functions">Functions and recursion</option>' in response.text
     assert "answer = answer + 2" in response.text
     assert '<details id="inspector" class="inspector">' in response.text
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
@@ -628,6 +671,8 @@ def test_static_css_and_javascript_are_served_separately():
     assert "while (count)" in javascript.text
     assert "for i from 1 to 5 step 2" in javascript.text
     assert "continue" in javascript.text
+    assert "function factorial(n)" in javascript.text
+    assert "return n * factorial(n - 1)" in javascript.text
     test_rune = (Path(__file__).resolve().parent.parent / "test.rune").read_text()
     assert f"full: `{test_rune}`" in javascript.text
     assert 'fetch("/reset"' in javascript.text

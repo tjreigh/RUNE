@@ -158,7 +158,8 @@ def test_string_token():
 
 def test_keyword_tokens():
     tokens = _tokenize(
-        "chaos if elif else while for from to step break continue end and or not"
+        "chaos if elif else while for from to step break continue "
+        "function return end and or not"
     )
     types = [t.type for t in tokens[:-1]]
     assert types == [
@@ -173,6 +174,8 @@ def test_keyword_tokens():
         TokenType.STEP,
         TokenType.BREAK,
         TokenType.CONTINUE,
+        TokenType.FUNCTION,
+        TokenType.RETURN,
         TokenType.END,
         TokenType.AND,
         TokenType.OR,
@@ -181,7 +184,7 @@ def test_keyword_tokens():
 
 
 def test_operator_and_structural_tokens():
-    tokens = _tokenize("+-*/%**~&|^<<>>()@")
+    tokens = _tokenize("+-*/%**~&|^<<>>(),@")
     types = [t.type for t in tokens[:-1]]
     assert types == [
         TokenType.PLUS,
@@ -198,6 +201,7 @@ def test_operator_and_structural_tokens():
         TokenType.SHIFT_RIGHT,
         TokenType.LPAREN,
         TokenType.RPAREN,
+        TokenType.COMMA,
         TokenType.PRAGMA,
     ]
 

@@ -51,3 +51,12 @@ def test_deployment_update_reinstalls_site_policy_and_validates_caddyfile():
     assert 'awk -v site="$CADDY_SITE"' in updater
     assert "--config /etc/caddy/Caddyfile" in updater
     assert "systemctl restart" in updater
+
+
+def test_deployment_smoke_checks_validation_and_functions():
+    smoke_test = _read("scripts/deploy-smoke-test.sh")
+
+    assert '"$BASE_URL/validate"' in smoke_test
+    assert 'diagnostics[0].get("kind") != "parse"' in smoke_test
+    assert "function factorial(n)" in smoke_test
+    assert 'response.get("values") != [120]' in smoke_test

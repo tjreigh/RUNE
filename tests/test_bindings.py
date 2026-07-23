@@ -41,6 +41,18 @@ def test_capturing_frame_accepts_new_assignments():
         assert bindings.assignment_target("local") is frame
 
 
+def test_isolating_frame_hides_parent_frames_but_not_persistent_root():
+    bindings = BindingEnvironment()
+    root = {"global": 7}
+
+    with bindings.frame({"caller_local": 1}):
+        with bindings.frame(isolates_parent_bindings=True):
+            assert bindings.resolve("global", root) == 7
+            with pytest.raises(KeyError):
+                bindings.resolve("caller_local", root)
+            assert bindings.assignment_target("caller_local") is None
+
+
 def test_interpreter_assigns_to_nearest_local_and_restores_global():
     interpreter = Interpreter(state=RuntimeState(variables={"counter": 99}))
 

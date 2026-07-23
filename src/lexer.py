@@ -114,6 +114,12 @@ class Lexer:
                     tokens.append(
                         Token(TokenType.CONTINUE, ident, self.span_from(start))
                     )
+                elif ident == "function":
+                    tokens.append(
+                        Token(TokenType.FUNCTION, ident, self.span_from(start))
+                    )
+                elif ident == "return":
+                    tokens.append(Token(TokenType.RETURN, ident, self.span_from(start)))
                 elif ident == "end":
                     tokens.append(Token(TokenType.END, ident, self.span_from(start)))
                 elif ident == "and":
@@ -139,6 +145,9 @@ class Lexer:
             elif self.text[self.pos] == ')':
                 self.advance()
                 tokens.append(Token(TokenType.RPAREN, ')', self.span_from(start)))
+            elif self.text[self.pos] == ',':
+                self.advance()
+                tokens.append(Token(TokenType.COMMA, ',', self.span_from(start)))
 
             # Arithmetic operators
             elif self.text[self.pos] == '+':

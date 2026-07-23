@@ -10,6 +10,7 @@ TEST_RUNE_SOURCE = (
 EXPECTED_OUTPUT = (
     "42\n42\n25\n-3\n-2\n42\n626\n0\n1\n1\n1\n2\n1\n0\n"
     "5\n4\n3\n1\n3\n5\n1\n3\n4\n"
+    "120\n"
 )
 
 

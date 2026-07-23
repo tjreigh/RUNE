@@ -39,6 +39,8 @@ class TokenType(Enum):
     STEP = "STEP"
     BREAK = "BREAK"
     CONTINUE = "CONTINUE"
+    FUNCTION = "FUNCTION"
+    RETURN = "RETURN"
     AND = "AND"
     OR = "OR"
     NOT = "NOT"
@@ -48,6 +50,7 @@ class TokenType(Enum):
     # Structural
     LPAREN = "LPAREN"  # (
     RPAREN = "RPAREN"  # )
+    COMMA = "COMMA"    # ,
     END = "END"
     NEWLINE = "NEWLINE"  # \n (statement separator)
     EOF = "EOF"
