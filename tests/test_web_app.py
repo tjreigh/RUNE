@@ -394,8 +394,8 @@ def test_root_route_serves_html():
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
     assert response.text.count('role="tabpanel"') == 3
     assert 'id="inspector-state">Chaos threshold: 1' in response.text
-    assert 'href="/static/style.css?v=0.5.0"' in response.text
-    assert 'src="/static/app.js?v=0.5.0"' in response.text
+    assert 'href="/static/style.css?v=0.6.0"' in response.text
+    assert 'src="/static/app.js?v=0.6.0"' in response.text
 
 
 def test_static_css_and_javascript_are_served_separately():
