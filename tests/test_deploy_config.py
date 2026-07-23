@@ -113,6 +113,9 @@ def test_policy_installer_requires_root_owned_installed_inputs():
     assert '"0:755"' in installer
     assert '"0:644"' in installer
     assert "@@PROXY_GROUP@@" in _read("deploy/rune.service")
+    assert 'VERIFY_APP_DIR="$TMP_DIR/verify-app"' in installer
+    assert "/bin/true" in installer
+    assert 'systemd-analyze verify "$TMP_DIR/$SERVICE_NAME.verify.service"' in installer
 
 
 def test_production_lock_is_complete_and_hash_only():
@@ -147,6 +150,8 @@ def test_deployment_smoke_supports_unix_socket_and_checks_functions():
     smoke_test = _read("scripts/deploy-smoke-test.sh")
 
     assert 'curl $CURL_FLAGS --unix-socket "$CURL_SOCKET"' in smoke_test
+    assert 'while [ ! -S "$CURL_SOCKET" ]' in smoke_test
+    assert '"$attempt" -ge 30' in smoke_test
     assert '"$BASE_URL/validate"' in smoke_test
     assert 'diagnostics[0].get("kind") != "parse"' in smoke_test
     assert "function factorial(n)" in smoke_test

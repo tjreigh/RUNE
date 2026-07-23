@@ -34,6 +34,18 @@ trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
 
 CURL_FLAGS="--fail --silent --show-error --connect-timeout 3 --max-time 10 --retry 10 --retry-delay 1 --retry-connrefused"
 
+if [ -n "$CURL_SOCKET" ]; then
+    attempt=0
+    while [ ! -S "$CURL_SOCKET" ]; do
+        attempt=$((attempt + 1))
+        if [ "$attempt" -ge 30 ]; then
+            echo "Unix socket did not become ready: $CURL_SOCKET" >&2
+            exit 1
+        fi
+        sleep 1
+    done
+fi
+
 run_curl() {
     if [ -n "$CURL_SOCKET" ]; then
         # shellcheck disable=SC2086

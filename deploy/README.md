@@ -74,9 +74,11 @@ getent group rune-proxy >/dev/null ||
 getent passwd rune >/dev/null ||
   sudo useradd --system --no-create-home --shell /usr/sbin/nologin rune
 sudo install -d -o root -g root -m 0755 /srv/rune
+getent group rune-deploy >/dev/null ||
+  sudo groupadd --system rune-deploy
 getent passwd rune-deploy >/dev/null ||
   sudo useradd --system --create-home --home-dir /srv/rune/deploy-home \
-    --shell /usr/sbin/nologin rune-deploy
+    --gid rune-deploy --shell /usr/sbin/nologin rune-deploy
 sudo usermod --append --groups rune-proxy rune
 sudo usermod --append --groups rune-proxy caddy
 
@@ -152,6 +154,8 @@ Add:
 
 ```ini
 [Service]
+RuntimeDirectory=caddy
+RuntimeDirectoryMode=0700
 Environment=CADDY_ADMIN=unix//run/caddy/admin.sock
 ```
 

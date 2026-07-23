@@ -95,8 +95,23 @@ sed \
     -e "s|@@SERVICE_NAME@@|$SERVICE_NAME|g" \
     "$CADDY_TEMPLATE" > "$TMP_DIR/$SERVICE_NAME.caddy"
 
+# systemd-analyze verifies that WorkingDirectory and the ExecStart executable
+# exist. A first deployment intentionally installs policy before /srv/rune/current
+# exists, so validate the identical policy against a root-owned, non-executing
+# path stub rather than touching application-controlled files.
+VERIFY_APP_DIR="$TMP_DIR/verify-app"
+install -d -o root -g root -m 0755 "$VERIFY_APP_DIR/.venv/bin"
+install -o root -g root -m 0755 /bin/true \
+    "$VERIFY_APP_DIR/.venv/bin/python"
+sed \
+    -e "s|@@APP_DIR@@|$VERIFY_APP_DIR|g" \
+    -e "s|@@SERVICE_USER@@|$SERVICE_USER|g" \
+    -e "s|@@SERVICE_NAME@@|$SERVICE_NAME|g" \
+    -e "s|@@PROXY_GROUP@@|$PROXY_GROUP|g" \
+    "$SERVICE_TEMPLATE" > "$TMP_DIR/$SERVICE_NAME.verify.service"
+
 caddy fmt --overwrite "$TMP_DIR/$SERVICE_NAME.caddy"
-systemd-analyze verify "$TMP_DIR/$SERVICE_NAME.service"
+systemd-analyze verify "$TMP_DIR/$SERVICE_NAME.verify.service"
 caddy validate --config "$TMP_DIR/$SERVICE_NAME.caddy" --adapter caddyfile
 
 install -o root -g root -m 0644 \
