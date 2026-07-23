@@ -16,9 +16,9 @@ _SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-from diagnostics import DiagnosticKind  # noqa: E402
+from diagnostics import DiagnosticKind, RuneError  # noqa: E402
 from limits import ExecutionLimits  # noqa: E402
-from runtime import evaluate  # noqa: E402
+from runtime import compile_source, evaluate  # noqa: E402
 from runtime_state import RuntimeState  # noqa: E402
 
 from isolation import IsolationStatus, run_isolated  # noqa: E402
@@ -148,6 +148,27 @@ def _worker_entrypoint(result_path, source, state_dict, evaluator=evaluate):
 class WorkerOutcome:
     status_code: int
     body: dict
+
+
+def validate_source(source: str, compiler=compile_source) -> dict:
+    """Compile source in-process without constructing runtime state.
+
+    The lexer and parser bound literal size, expression nesting, and block
+    nesting, while the web adapter separately bounds source size and admitted
+    concurrency. Validation therefore does not need a disposable evaluation
+    worker and, importantly, cannot execute code or touch a session.
+    """
+    # The parser intentionally rejects an empty program for execution. Live
+    # editing treats only the language's actual whitespace characters as a
+    # neutral draft; other Unicode whitespace still goes through the lexer.
+    if not source.strip(" \t\r\n"):
+        return {"ok": True, "diagnostics": []}
+
+    try:
+        compiler(source)
+    except RuneError as exc:
+        return {"ok": False, "diagnostics": [exc.diagnostic.to_dict()]}
+    return {"ok": True, "diagnostics": []}
 
 
 def _timeout_envelope(state_dict: dict) -> dict:

@@ -1,6 +1,8 @@
 import asyncio
 import json
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 
@@ -13,6 +15,214 @@ import app as app_module
 from app import FixedWindowRateLimiter, MaxBodySizeMiddleware, create_app
 from rune_worker import WorkerOutcome
 from sessions import SessionStore
+
+
+def test_validation_accepts_valid_source_without_evaluation_fields():
+    client = TestClient(create_app())
+    response = client.post("/validate", json={"source": "missing_variable"})
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "diagnostics": []}
+
+
+@pytest.mark.parametrize("source", ["", " \t\r\n"])
+def test_validation_keeps_empty_source_neutral(source):
+    client = TestClient(create_app())
+    response = client.post("/validate", json={"source": source})
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "diagnostics": []}
+
+
+@pytest.mark.parametrize(
+    ("source", "kind", "line", "column"),
+    [
+        ("#", "lex", 1, 1),
+        ("\N{NO-BREAK SPACE}", "lex", 1, 1),
+        ("if (1)\n1\n", "parse", 3, 1),
+    ],
+)
+def test_validation_diagnostics_exactly_match_evaluation(
+    source, kind, line, column
+):
+    app = create_app()
+    client = TestClient(app)
+
+    validated = client.post("/validate", json={"source": source})
+    evaluated = client.post("/evaluate", json={"source": source})
+
+    assert validated.status_code == 200
+    assert validated.json()["ok"] is False
+    assert validated.json()["diagnostics"] == evaluated.json()["diagnostics"]
+    diagnostic = validated.json()["diagnostics"][0]
+    assert diagnostic["kind"] == kind
+    assert diagnostic["span"]["start"] == {"line": line, "column": column}
+
+
+def test_validation_accepts_only_source_field():
+    client = TestClient(create_app())
+
+    with_session = client.post(
+        "/validate",
+        json={"source": "1", "session_id": "x" * 43},
+    )
+    with_state = client.post(
+        "/validate",
+        json={"source": "1", "state": {"chaos_threshold": 500}},
+    )
+
+    assert with_session.status_code == 422
+    assert with_state.status_code == 422
+
+
+def test_validation_never_creates_or_mutates_sessions():
+    store = SessionStore()
+    client = TestClient(create_app(session_store=store))
+
+    assert client.post(
+        "/validate", json={"source": "answer = 99"}
+    ).status_code == 200
+    assert store.session_count == 0
+
+    evaluated = client.post(
+        "/evaluate", json={"source": "answer = 42"}
+    ).json()
+    session = store.resolve(evaluated["session_id"])
+    before = store.snapshot(session)
+
+    client.post("/validate", json={"source": "answer = 99"})
+
+    assert store.session_count == 1
+    assert store.snapshot(session) == before
+
+
+def test_validation_source_and_streaming_body_limits():
+    client = TestClient(create_app(max_source_length=10, max_request_bytes=100))
+
+    oversized_source = client.post(
+        "/validate", json={"source": "1" * 11}
+    )
+
+    def oversized_chunks():
+        yield json.dumps({"source": "1" * 1_000}).encode()
+
+    oversized_body = client.post(
+        "/validate",
+        content=oversized_chunks(),
+        headers={"content-type": "application/json"},
+    )
+
+    assert oversized_source.status_code == 413
+    assert oversized_body.status_code == 413
+
+
+def test_validation_hostile_literal_and_nesting_are_structured():
+    client = TestClient(create_app())
+
+    literal = client.post("/validate", json={"source": "9" * 4_301})
+    nested = client.post(
+        "/validate",
+        json={"source": "(" * 101 + "1" + ")" * 101},
+    )
+
+    assert literal.status_code == 200
+    assert literal.json()["diagnostics"][0]["kind"] == "lex"
+    assert "4300-digit limit" in literal.json()["diagnostics"][0]["message"]
+    assert nested.status_code == 200
+    assert nested.json()["diagnostics"][0]["kind"] == "parse"
+    assert "nesting exceeds" in nested.json()["diagnostics"][0]["message"]
+
+
+def test_validation_concurrency_cap_is_separate_and_recovers():
+    app = create_app(max_concurrency=1, validation_max_concurrency=1)
+    client = TestClient(app)
+
+    assert app.state.validation_concurrency_semaphore.acquire(blocking=False)
+    try:
+        busy = client.post("/validate", json={"source": "2+2"})
+        evaluation = client.post("/evaluate", json={"source": "2+2"})
+    finally:
+        app.state.validation_concurrency_semaphore.release()
+
+    recovered = client.post("/validate", json={"source": "2+2"})
+    assert busy.status_code == 503
+    assert evaluation.status_code == 200
+    assert recovered.status_code == 200
+
+
+def test_default_validation_concurrency_is_bounded_to_four():
+    app = create_app()
+    semaphore = app.state.validation_concurrency_semaphore
+
+    for _ in range(4):
+        assert semaphore.acquire(blocking=False)
+    assert not semaphore.acquire(blocking=False)
+    for _ in range(4):
+        semaphore.release()
+
+
+def test_validation_has_separate_client_rate_limit():
+    client = TestClient(create_app(
+        rate_limit_max=1,
+        validation_rate_limit_max=1,
+        rate_limit_window=60.0,
+    ))
+
+    assert client.post("/validate", json={"source": "1"}).status_code == 200
+    limited = client.post("/validate", json={"source": "2"})
+    evaluation = client.post("/evaluate", json={"source": "2"})
+
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"
+    assert evaluation.status_code == 200
+
+
+def test_invalid_validation_request_counts_toward_its_rate_limit():
+    client = TestClient(create_app(
+        validation_rate_limit_max=1,
+        rate_limit_window=60.0,
+    ))
+
+    invalid = client.post(
+        "/validate", json={"source": "1", "unexpected": True}
+    )
+    limited = client.post("/validate", json={"source": "1"})
+
+    assert invalid.status_code == 422
+    assert limited.status_code == 429
+
+
+def test_global_validation_rate_limit_bounds_all_clients():
+    app = create_app(
+        validation_rate_limit_max=10,
+        validation_global_rate_limit_max=1,
+        rate_limit_window=60.0,
+    )
+    first_client = TestClient(app, client=("client-a", 50_000))
+    second_client = TestClient(app, client=("client-b", 50_001))
+
+    assert first_client.post(
+        "/validate", json={"source": "1"}
+    ).status_code == 200
+    limited = second_client.post("/validate", json={"source": "2"})
+
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"
+
+
+def test_frontend_validation_cancellation_and_stale_suppression():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for the frontend behavior test")
+
+    test_file = Path(__file__).resolve().parent / "frontend_validation.test.js"
+    completed = subprocess.run(
+        [node, "--test", str(test_file)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def test_normal_evaluation():
@@ -394,6 +604,8 @@ def test_root_route_serves_html():
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
     assert response.text.count('role="tabpanel"') == 3
     assert 'id="inspector-state">Chaos threshold: 1' in response.text
+    assert 'id="validation-status"' in response.text
+    assert 'role="status"' in response.text
     assert 'href="/static/style.css?v=0.6.0"' in response.text
     assert 'src="/static/app.js?v=0.6.0"' in response.text
 
@@ -419,6 +631,11 @@ def test_static_css_and_javascript_are_served_separately():
     test_rune = (Path(__file__).resolve().parent.parent / "test.rune").read_text()
     assert f"full: `{test_rune}`" in javascript.text
     assert 'fetch("/reset"' in javascript.text
+    assert 'fetch("/validate"' in javascript.text
+    assert "validationController.abort()" in javascript.text
+    assert "mySeq !== validationRequestSeq" in javascript.text
+    assert "}, 300);" in javascript.text
+    assert "setSelectionRange(start, end)" in javascript.text
     assert "payload.state" not in javascript.text
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
     assert "heldEvents = result.events ?? []" in javascript.text

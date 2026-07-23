@@ -19,6 +19,37 @@ textarea {
   font-size: 0.95rem;
 }
 
+.validation-status {
+  min-height: 1.25rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+}
+
+.validation-status.neutral {
+  color: #666;
+}
+
+.validation-status.valid {
+  color: #176b32;
+}
+
+.validation-status.invalid,
+.validation-status.unavailable {
+  color: #b00020;
+}
+
+.validation-error {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .controls {
   display: flex;
   gap: 0.5rem;
@@ -107,6 +138,7 @@ button:disabled {
 }
 
 .inspector-tab:focus-visible,
+.validation-error:focus-visible,
 .inspector > summary:focus-visible {
   outline: 2px solid #1769aa;
   outline-offset: 2px;

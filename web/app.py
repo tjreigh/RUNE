@@ -3,9 +3,9 @@
 Run locally with:
     .venv/bin/python -m uvicorn app:app --app-dir web --port 8000
 
-This module never imports the core (src/) directly -- everything
-core-facing goes through rune_worker.evaluate_isolated(), which runs each
-evaluation in a disposable subprocess with a hard wall-clock timeout.
+This module never imports the core (src/) directly. Core-facing evaluation
+and validation both go through rune_worker: evaluation uses a disposable
+subprocess, while bounded compile-only validation runs in-process.
 """
 
 import threading
@@ -30,7 +30,9 @@ from sessions import (
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEFAULT_MAX_CONCURRENT_EVALUATIONS = 2
+DEFAULT_MAX_CONCURRENT_VALIDATIONS = 4
 GLOBAL_EVALUATION_LIMIT_KEY = "all-evaluations"
+GLOBAL_VALIDATION_LIMIT_KEY = "all-validations"
 NEW_SESSION_LIMIT_KEY = "new-sessions"
 STALE_CLIENT_MESSAGE = (
     "This RUNE page is out of date. Reload the page before running again."
@@ -175,12 +177,12 @@ class FixedWindowRateLimiter:
 
 
 class EvaluateRateLimitMiddleware:
-    """Apply per-client and aggregate limits before request-body parsing.
+    """Apply per-client and aggregate endpoint limits before body parsing.
 
-    Malformed and oversized evaluations therefore consume both budgets rather
-    than bypassing admission control. Reset requests consume the client budget.
-    Per-client rejection happens first so one address cannot consume the entire
-    aggregate budget by itself.
+    Malformed and oversized requests therefore consume their endpoint budget
+    rather than bypassing admission control. Reset requests consume the
+    evaluation client budget. Per-client rejection happens first so one
+    address cannot consume an entire aggregate budget by itself.
 
     The client key comes from the ASGI scope populated by Uvicorn. Locally that
     is the direct peer address; deployment must only trust proxy headers from
@@ -192,25 +194,45 @@ class EvaluateRateLimitMiddleware:
         app,
         client_limiter: FixedWindowRateLimiter,
         global_limiter: FixedWindowRateLimiter,
+        validation_client_limiter: FixedWindowRateLimiter,
+        validation_global_limiter: FixedWindowRateLimiter,
     ):
         self.app = app
         self.client_limiter = client_limiter
         self.global_limiter = global_limiter
+        self.validation_client_limiter = validation_client_limiter
+        self.validation_global_limiter = validation_global_limiter
 
     async def __call__(self, scope, receive, send):
-        if (
-            scope["type"] == "http"
-            and scope.get("path") in {"/evaluate", "/reset"}
-        ):
+        if scope["type"] == "http":
+            path = scope.get("path")
             client = scope.get("client")
             client_key = client[0] if client else "unknown-client"
-            if not self.client_limiter.allow(client_key):
-                return await _send_429(send, self.client_limiter.window_seconds)
-            if (
-                scope.get("path") == "/evaluate"
-                and not self.global_limiter.allow(GLOBAL_EVALUATION_LIMIT_KEY)
-            ):
-                return await _send_429(send, self.global_limiter.window_seconds)
+            if path in {"/evaluate", "/reset"}:
+                if not self.client_limiter.allow(client_key):
+                    return await _send_429(
+                        send, self.client_limiter.window_seconds
+                    )
+                if (
+                    path == "/evaluate"
+                    and not self.global_limiter.allow(
+                        GLOBAL_EVALUATION_LIMIT_KEY
+                    )
+                ):
+                    return await _send_429(
+                        send, self.global_limiter.window_seconds
+                    )
+            elif path == "/validate":
+                if not self.validation_client_limiter.allow(client_key):
+                    return await _send_429(
+                        send, self.validation_client_limiter.window_seconds
+                    )
+                if not self.validation_global_limiter.allow(
+                    GLOBAL_VALIDATION_LIMIT_KEY
+                ):
+                    return await _send_429(
+                        send, self.validation_global_limiter.window_seconds
+                    )
         return await self.app(scope, receive, send)
 
 
@@ -227,6 +249,11 @@ class EvaluateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str
     session_id: str | None = Field(default=None, min_length=32, max_length=128)
+
+
+class ValidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str
 
 
 class ResetRequest(BaseModel):
@@ -248,14 +275,18 @@ def _diagnostic_envelope(state: dict, kind: str, message: str, stats) -> dict:
 def create_app(
     *,
     max_concurrency: int = DEFAULT_MAX_CONCURRENT_EVALUATIONS,
+    validation_max_concurrency: int = DEFAULT_MAX_CONCURRENT_VALIDATIONS,
     rate_limit_max: int = 30,
     global_rate_limit_max: int = 120,
+    validation_rate_limit_max: int = 120,
+    validation_global_rate_limit_max: int = 480,
     new_session_rate_limit_max: int = 20,
     rate_limit_window: float = 60.0,
     max_source_length: int = 10_000,
     max_request_bytes: int = 16_384,
     eval_timeout: float = 2.0,
     evaluator=rune_worker.evaluate_isolated,
+    validator=rune_worker.validate_source,
     session_store: SessionStore | None = None,
 ) -> FastAPI:
     app = FastAPI()
@@ -275,18 +306,34 @@ def create_app(
         rate_limit_window,
         max_buckets=1,
     )
+    validation_rate_limiter = FixedWindowRateLimiter(
+        validation_rate_limit_max,
+        rate_limit_window,
+    )
+    validation_global_rate_limiter = FixedWindowRateLimiter(
+        validation_global_rate_limit_max,
+        rate_limit_window,
+        max_buckets=1,
+    )
     app.add_middleware(MaxBodySizeMiddleware, max_bytes=max_request_bytes)
     # Added after MaxBodySizeMiddleware so Starlette makes it the outer layer:
-    # all /evaluate requests count before body parsing or validation.
+    # /evaluate and /validate requests count before body/schema validation.
     app.add_middleware(
         EvaluateRateLimitMiddleware,
         client_limiter=rate_limiter,
         global_limiter=global_rate_limiter,
+        validation_client_limiter=validation_rate_limiter,
+        validation_global_limiter=validation_global_rate_limiter,
     )
     app.state.concurrency_semaphore = threading.Semaphore(max_concurrency)
+    app.state.validation_concurrency_semaphore = threading.Semaphore(
+        validation_max_concurrency
+    )
     app.state.rate_limiter = rate_limiter
     app.state.global_rate_limiter = global_rate_limiter
     app.state.new_session_rate_limiter = new_session_rate_limiter
+    app.state.validation_rate_limiter = validation_rate_limiter
+    app.state.validation_global_rate_limiter = validation_global_rate_limiter
     app.state.max_source_length = max_source_length
     app.state.eval_timeout = eval_timeout
     app.state.session_store = session_store or SessionStore()
@@ -387,6 +434,20 @@ def create_app(
                 return JSONResponse(status_code=response_status, content=body)
         finally:
             app.state.concurrency_semaphore.release()
+
+    @app.post("/validate")
+    def validate_endpoint(payload: ValidateRequest):
+        if len(payload.source) > app.state.max_source_length:
+            raise HTTPException(413, "source exceeds maximum length")
+
+        if not app.state.validation_concurrency_semaphore.acquire(
+            blocking=False
+        ):
+            raise HTTPException(503, "server busy, try again shortly")
+        try:
+            return validator(payload.source)
+        finally:
+            app.state.validation_concurrency_semaphore.release()
 
     @app.post("/reset", status_code=204)
     def reset_endpoint(payload: ResetRequest):

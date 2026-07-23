@@ -124,6 +124,7 @@ const KIND_LABELS = {
 };
 
 const sourceEl = document.getElementById("source");
+const validationStatusEl = document.getElementById("validation-status");
 const outputEl = document.getElementById("output");
 const runBtn = document.getElementById("run");
 const resetBtn = document.getElementById("reset");
@@ -141,11 +142,15 @@ let heldStats = null;
 let hasEvaluation = false;
 let requestSeq = 0; // Prevent stale responses from overwriting newer state.
 let activeController = null;
+let validationRequestSeq = 0;
+let validationController = null;
+let validationTimer = null;
 
 examplesEl.addEventListener("change", () => {
   const key = examplesEl.value;
   if (key && EXAMPLES[key] !== undefined) {
     sourceEl.value = EXAMPLES[key];
+    scheduleValidation();
   }
   examplesEl.value = "";
 });
@@ -163,6 +168,140 @@ function renderOutput(text, isError = false) {
   outputEl.textContent = text;
   outputEl.classList.toggle("error", isError);
 }
+
+function sourceOffsetAtPosition(source, position) {
+  let line = 1;
+  let column = 1;
+  let offset = 0;
+
+  for (const character of source) {
+    if (line === position.line && column === position.column) {
+      return offset;
+    }
+    offset += character.length; // JavaScript selection offsets use UTF-16.
+    if (character === "\n") {
+      ++line;
+      column = 1;
+    } else {
+      ++column;
+    }
+  }
+  return offset;
+}
+
+function selectDiagnosticSpan(span) {
+  const source = sourceEl.value;
+  const start = sourceOffsetAtPosition(source, span.start);
+  const end = sourceOffsetAtPosition(source, span.end);
+  sourceEl.focus();
+  sourceEl.setSelectionRange(start, end);
+}
+
+function renderValidationStatus(kind, text, span = null) {
+  validationStatusEl.className = `validation-status ${kind}`;
+  validationStatusEl.replaceChildren();
+
+  if (span === null) {
+    validationStatusEl.textContent = text;
+    return;
+  }
+
+  const errorButton = document.createElement("button");
+  errorButton.type = "button";
+  errorButton.className = "validation-error";
+  errorButton.textContent = text;
+  errorButton.title = "Select this error in the editor";
+  errorButton.addEventListener("click", () => selectDiagnosticSpan(span));
+  validationStatusEl.append(errorButton);
+}
+
+async function validateSource(source, mySeq) {
+  const controller = new AbortController();
+  validationController = controller;
+
+  try {
+    let response;
+    try {
+      response = await fetch("/validate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source }),
+        signal: controller.signal,
+      });
+    } catch (networkError) {
+      if (
+        networkError.name !== "AbortError"
+        && mySeq === validationRequestSeq
+      ) {
+        renderValidationStatus("unavailable", "Validation unavailable.");
+      }
+      return;
+    }
+
+    if (mySeq !== validationRequestSeq) {
+      return;
+    }
+
+    if (!response.ok) {
+      renderValidationStatus(
+        "unavailable",
+        `Validation unavailable (${response.status}).`,
+      );
+      return;
+    }
+
+    const result = await response.json();
+    if (mySeq !== validationRequestSeq) {
+      return;
+    }
+
+    if (result.ok) {
+      renderValidationStatus("valid", "Syntax looks good.");
+      return;
+    }
+
+    const diagnostic = result.diagnostics[0];
+    renderValidationStatus(
+      "invalid",
+      formatDiagnostic(diagnostic),
+      diagnostic.span,
+    );
+  } finally {
+    if (
+      mySeq === validationRequestSeq
+      && validationController === controller
+    ) {
+      validationController = null;
+    }
+  }
+}
+
+function scheduleValidation() {
+  const source = sourceEl.value;
+  const mySeq = ++validationRequestSeq;
+
+  if (validationTimer !== null) {
+    clearTimeout(validationTimer);
+    validationTimer = null;
+  }
+  if (validationController !== null) {
+    validationController.abort();
+    validationController = null;
+  }
+
+  if (source.length === 0) {
+    renderValidationStatus("neutral", "Nothing to validate.");
+    return;
+  }
+
+  renderValidationStatus("neutral", "Checking syntax…");
+  validationTimer = setTimeout(() => {
+    validationTimer = null;
+    validateSource(source, mySeq);
+  }, 300);
+}
+
+sourceEl.addEventListener("input", scheduleValidation);
 
 function formatRequestDetail(detail) {
   if (typeof detail === "string") {
@@ -363,3 +502,5 @@ runBtn.addEventListener("click", async () => {
     }
   }
 });
+
+scheduleValidation();

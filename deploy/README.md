@@ -82,12 +82,14 @@ Each evaluation runs in a disposable process with a two-second deadline and
 irreversible Linux limits of 192 MiB of address space, three CPU seconds,
 1,000,000 bytes of file output, and no core dumps. The application admits at
 most two evaluations concurrently, at most 120 evaluations and 20 new sessions
-per minute across all clients, and Uvicorn caps accepted tasks and its socket
-backlog. The systemd unit additionally caps the complete service process tree
-at 512 MiB, one CPU, 64 tasks, and 1,024 file descriptors, with swap disabled,
-so a failed inner limit remains contained to the service instead of exhausting
-the VPS. Tune the service limits only while preserving enough memory and CPU
-for the OS, Caddy, and SSH.
+per minute across all clients. Compile-only validation is admitted separately
+at four concurrent requests, 120 requests per client per minute, and 480 per
+minute across all clients. Uvicorn caps accepted tasks and its socket backlog.
+The systemd unit additionally caps the complete service process tree at 512
+MiB, one CPU, 64 tasks, and 1,024 file descriptors, with swap disabled, so a
+failed inner limit remains contained to the service instead of exhausting the
+VPS. Tune the service limits only while preserving enough memory and CPU for
+the OS, Caddy, and SSH.
 
 ## Update
 
