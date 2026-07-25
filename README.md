@@ -21,8 +21,7 @@ The web REPL loads these same source files:
 
 ## Documentation
 
-- [RUNE 0.8 language reference](docs/language-reference-0.8.md) — draft for
-  the next release
+- [RUNE 0.8 language reference](docs/language-reference-0.8.md)
 - [Changelog](CHANGELOG.md)
 
 ## The language

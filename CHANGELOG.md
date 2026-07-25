@@ -3,7 +3,7 @@
 RUNE is pre-1.0. Minor releases may change the language; breaking changes get
 migration notes here.
 
-## Unreleased — v0.8
+## v0.8.0 — 2026-07-25
 
 Added:
 
@@ -26,8 +26,6 @@ Migration notes:
 - `#` now starts a comment outside strings instead of producing a lex error.
 - Functions remain source-local. In the terminal REPL, submit a declaration
   and its calls together as one multiline draft.
-- The installed package remains `0.7.0` until the v0.8 release is cut.
-
 ## v0.7.0 — 2026-07-23
 
 - Added top-level functions, calls, explicit returns, recursion, declaration

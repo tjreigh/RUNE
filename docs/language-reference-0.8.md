@@ -1,6 +1,6 @@
 # RUNE 0.8 language reference
 
-Draft for the unreleased v0.8 language. The [README](../README.md) is the
+This document defines the v0.8 language. The [README](../README.md) is the
 tutorial; this page is the compact answer to “what does RUNE actually do?”
 
 ## The model

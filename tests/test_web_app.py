@@ -667,8 +667,8 @@ def test_root_route_serves_html():
     assert 'id="guide-heading">How RUNE works<' in response.text
     assert "Truth has a threshold" in response.text
     assert "Strings collapse to the sum of their Unicode code points" in response.text
-    assert 'href="/static/style.css?v=0.7.0"' in response.text
-    assert 'src="/static/app.js?v=0.7.0"' in response.text
+    assert 'href="/static/style.css?v=0.8.0"' in response.text
+    assert 'src="/static/app.js?v=0.8.0"' in response.text
 
 
 def test_static_css_and_javascript_are_served_separately():
