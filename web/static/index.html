@@ -3,108 +3,295 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RUNE Web REPL</title>
-<link rel="stylesheet" href="/static/style.css?v=0.6.0">
-<script src="/static/app.js?v=0.6.0" defer></script>
+<meta
+  name="description"
+  content="Write and run RUNE, a tiny integer language with chaotic truthiness."
+>
+<title>RUNE Playground</title>
+<link rel="stylesheet" href="/static/style.css?v=0.7.0">
+<script src="/static/app.js?v=0.7.0" defer></script>
 </head>
 <body>
-<h1>RUNE Web REPL</h1>
-<p class="hint">Variables and the chaos threshold persist in an expiring
-server-side session until you press Reset.</p>
-<p class="runtime-state" aria-live="polite">
-  Chaos level: <strong id="chaos-level">1</strong>
-</p>
+<main class="page-shell">
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">Runtime Unicode Numeric Evaluation</p>
+      <h1>RUNE Web REPL</h1>
+      <p class="lede">
+        A small integer language with a flexible relationship to truth.
+      </p>
+    </div>
+    <a
+      class="repo-link"
+      href="https://github.com/tjreigh/RUNE"
+      target="_blank"
+      rel="noreferrer"
+    >Source code ↗</a>
+  </header>
 
-<div class="controls">
-  <select id="examples">
-    <option value="">-- load an example --</option>
-    <option value="smoke">2 + 2</option>
-    <option value="variables">Variables</option>
-    <option value="expressions">Expressions</option>
-    <option value="logic">Chaos-aware logic</option>
-    <option value="chaos">@chaos threshold demo</option>
-    <option value="loops">Loops</option>
-    <option value="functions">Functions and recursion</option>
-    <option value="full">Full walkthrough (test.rune)</option>
-  </select>
-</div>
+  <section class="workspace" aria-labelledby="editor-heading">
+    <div class="workspace-heading">
+      <div>
+        <p class="section-label">Program</p>
+        <h2 id="editor-heading">Write RUNE</h2>
+      </div>
+      <p class="runtime-state" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        chaos: <strong id="chaos-level">1</strong>
+      </p>
+    </div>
 
-<textarea id="source" spellcheck="false">answer = 40
+    <div class="editor-toolbar">
+      <div class="editor-settings">
+        <label class="toolbar-field">
+          <span>Example</span>
+          <select id="examples">
+            <option value="">Choose a program…</option>
+            <option value="smoke">2 + 2</option>
+            <option value="variables">Variables</option>
+            <option value="expressions">Expressions</option>
+            <option value="logic">Chaos-aware logic</option>
+            <option value="chaos">@chaos threshold demo</option>
+            <option value="loops">Loops</option>
+            <option value="functions">Functions and recursion</option>
+            <option value="full">Full walkthrough (test.rune)</option>
+          </select>
+        </label>
+        <label class="toolbar-field">
+          <span>Theme</span>
+          <select id="editor-theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
+      </div>
+      <span class="keyboard-hint"><kbd>⌘</kbd><kbd>Enter</kbd> to run</span>
+    </div>
+
+    <div id="editor-frame" class="editor-frame" data-editor-theme="dark">
+      <pre
+        id="highlighting"
+        class="editor-highlighting"
+        aria-hidden="true"
+      ><code id="highlighting-content"></code></pre>
+      <textarea
+        id="source"
+        aria-label="RUNE source code"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+      >answer = 40
 answer = answer + 2
 answer</textarea>
-<div
-  id="validation-status"
-  class="validation-status neutral"
-  role="status"
-  aria-live="polite"
->Waiting to validate.</div>
+    </div>
+    <div class="editor-footer">
+      <div
+        id="validation-status"
+        class="validation-status neutral"
+        role="status"
+        aria-live="polite"
+      >Waiting to validate.</div>
+      <span id="source-position" class="source-position">Ln 1, Col 1</span>
+    </div>
 
-<div class="controls">
-  <button id="run">Run</button>
-  <button id="reset">Reset</button>
-</div>
+    <div class="actions">
+      <button id="run" class="primary-action" type="button">
+        <span aria-hidden="true">▶</span> Run
+      </button>
+      <button id="reset" class="secondary-action" type="button">Reset session</button>
+    </div>
 
-<div id="output"></div>
+    <section class="output-section" aria-labelledby="output-heading">
+      <div class="output-heading">
+        <h3 id="output-heading">Output</h3>
+        <span>integers, one per line</span>
+      </div>
+      <div id="output" role="region" aria-live="polite" aria-label="Program output"></div>
+    </section>
 
-<details id="inspector" class="inspector">
-  <summary>Show internals</summary>
-  <div class="inspector-tabs" role="tablist" aria-label="Runtime internals">
-    <button
-      type="button"
-      id="inspector-state-tab"
-      class="inspector-tab"
-      role="tab"
-      aria-selected="true"
-      aria-controls="inspector-state-panel"
-      tabindex="0"
-    >State</button>
-    <button
-      type="button"
-      id="inspector-events-tab"
-      class="inspector-tab"
-      role="tab"
-      aria-selected="false"
-      aria-controls="inspector-events-panel"
-      tabindex="-1"
-    >Events</button>
-    <button
-      type="button"
-      id="inspector-stats-tab"
-      class="inspector-tab"
-      role="tab"
-      aria-selected="false"
-      aria-controls="inspector-stats-panel"
-      tabindex="-1"
-    >Stats</button>
-  </div>
+    <details id="inspector" class="inspector">
+      <summary>Runtime internals</summary>
+      <div class="inspector-tabs" role="tablist" aria-label="Runtime internals">
+        <button
+          type="button"
+          id="inspector-state-tab"
+          class="inspector-tab"
+          role="tab"
+          aria-selected="true"
+          aria-controls="inspector-state-panel"
+          tabindex="0"
+        >State</button>
+        <button
+          type="button"
+          id="inspector-events-tab"
+          class="inspector-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="inspector-events-panel"
+          tabindex="-1"
+        >Events</button>
+        <button
+          type="button"
+          id="inspector-stats-tab"
+          class="inspector-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="inspector-stats-panel"
+          tabindex="-1"
+        >Stats</button>
+      </div>
 
-  <section
-    id="inspector-state-panel"
-    class="inspector-panel"
-    role="tabpanel"
-    aria-labelledby="inspector-state-tab"
-  >
-    <pre id="inspector-state">Chaos threshold: 1
+      <section
+        id="inspector-state-panel"
+        class="inspector-panel"
+        role="tabpanel"
+        aria-labelledby="inspector-state-tab"
+      >
+        <pre id="inspector-state">Chaos threshold: 1
 Variables: (none)</pre>
+      </section>
+      <section
+        id="inspector-events-panel"
+        class="inspector-panel"
+        role="tabpanel"
+        aria-labelledby="inspector-events-tab"
+        hidden
+      >
+        <pre id="inspector-events">No runtime events.</pre>
+      </section>
+      <section
+        id="inspector-stats-panel"
+        class="inspector-panel"
+        role="tabpanel"
+        aria-labelledby="inspector-stats-tab"
+        hidden
+      >
+        <pre id="inspector-stats">No evaluation yet.</pre>
+      </section>
+    </details>
   </section>
-  <section
-    id="inspector-events-panel"
-    class="inspector-panel"
-    role="tabpanel"
-    aria-labelledby="inspector-events-tab"
-    hidden
-  >
-    <pre id="inspector-events">No runtime events.</pre>
+
+  <section class="language-guide" aria-labelledby="guide-heading">
+    <div class="guide-heading">
+      <div>
+        <p class="section-label">Language notes</p>
+        <h2 id="guide-heading">How RUNE works</h2>
+      </div>
+      <p>version 0.7</p>
+    </div>
+
+    <div class="concept-grid">
+      <article class="concept-card chaos-card">
+        <div class="concept-number">01</div>
+        <h3>Truth has a threshold</h3>
+        <p>
+          <code>@chaos n</code> makes a value true only when it is at least
+          <code>n</code>. At chaos 500, even <code>1</code> is false.
+        </p>
+        <pre><code><span class="tok-directive">@chaos</span> <span class="tok-number">500</span>
+<span class="tok-keyword">if</span> (<span class="tok-number">499</span>)
+  <span class="tok-number">1</span>
+<span class="tok-keyword">else</span>
+  <span class="tok-number">0</span>
+<span class="tok-keyword">end if</span></code></pre>
+      </article>
+
+      <article class="concept-card unicode-card">
+        <div class="concept-number">02</div>
+        <h3>Text is arithmetic</h3>
+        <p>
+          Strings collapse to the sum of their Unicode code points. That makes
+          emoji and ordinary text valid numeric operands.
+        </p>
+        <pre><code><span class="tok-identifier">rocket</span> = <span class="tok-string">"🚀"</span>
+<span class="tok-identifier">face</span> = <span class="tok-string">"😀"</span>
+<span class="tok-identifier">rocket</span> - <span class="tok-identifier">face</span>  <span class="code-result">→ 128</span></code></pre>
+      </article>
+
+      <article class="concept-card state-card">
+        <div class="concept-number">03</div>
+        <h3>State sticks around</h3>
+        <p>
+          Variables and the chaos threshold persist in this expiring browser
+          session. Failed runs never commit partial changes.
+        </p>
+        <pre><code><span class="tok-identifier">answer</span> = <span class="tok-number">40</span>
+<span class="tok-identifier">answer</span> = <span class="tok-identifier">answer</span> + <span class="tok-number">2</span>
+<span class="tok-identifier">answer</span>  <span class="code-result">→ 42</span></code></pre>
+      </article>
+    </div>
+
+    <div class="reference-grid">
+      <article class="reference-card">
+        <h3>Control flow</h3>
+        <dl class="syntax-list">
+          <div>
+            <dt>Conditional</dt>
+            <dd><code>if (x)</code> · <code>elif (x)</code> · <code>else</code> · <code>end if</code></dd>
+          </div>
+          <div>
+            <dt>While loop</dt>
+            <dd><code>while (x)</code> · <code>end while</code></dd>
+          </div>
+          <div>
+            <dt>Counted loop</dt>
+            <dd><code>for i from 1 to 5 step 2</code> · <code>end for</code></dd>
+          </div>
+          <div>
+            <dt>Function</dt>
+            <dd><code>function add(a, b)</code> · <code>return a + b</code> · <code>end function</code></dd>
+          </div>
+        </dl>
+      </article>
+
+      <article class="reference-card">
+        <h3>Operators</h3>
+        <p class="reference-note">Highest precedence first.</p>
+        <ul class="precedence-list">
+          <li><code class="syntax-primary">calls · literals · names · strings · grouping</code></li>
+          <li><code class="syntax-operator">**</code></li>
+          <li><code class="syntax-operator">prefix - ~</code></li>
+          <li><code class="syntax-operator">* / %</code></li>
+          <li><code class="syntax-operator">+ -</code></li>
+          <li><code class="syntax-operator">&lt;&lt; &gt;&gt;</code></li>
+          <li><code class="syntax-operator">&amp;</code></li>
+          <li><code class="syntax-operator">^</code></li>
+          <li><code class="syntax-operator">|</code></li>
+          <li><code class="syntax-operator">&lt; &gt; &lt;= &gt;= == !=</code></li>
+          <li><code class="syntax-keyword">not</code></li>
+          <li><code class="syntax-keyword">and</code></li>
+          <li><code class="syntax-keyword">or</code></li>
+        </ul>
+      </article>
+
+      <article class="reference-card">
+        <h3>Values &amp; names</h3>
+        <dl class="syntax-list">
+          <div>
+            <dt>Integers</dt>
+            <dd><code>42</code> · <code>0b101010</code> · <code>0o52</code> · <code>0x2A</code></dd>
+          </div>
+          <div>
+            <dt>Strings</dt>
+            <dd>Double quoted; converted to Unicode code-point sums.</dd>
+          </div>
+          <div>
+            <dt>Names</dt>
+            <dd>Start with a letter or <code>_</code>; keywords are reserved.</dd>
+          </div>
+          <div>
+            <dt>Logic</dt>
+            <dd><code>and</code>, <code>or</code>, and <code>not</code> short-circuit and return <code>1</code> or <code>0</code>.</dd>
+          </div>
+        </dl>
+      </article>
+    </div>
+
+    <p class="guide-footnote">
+      Blocks use typed endings such as <code>end if</code>, <code>end for</code>,
+      and <code>end function</code>. Bare <code>end</code> is invalid.
+    </p>
   </section>
-  <section
-    id="inspector-stats-panel"
-    class="inspector-panel"
-    role="tabpanel"
-    aria-labelledby="inspector-stats-tab"
-    hidden
-  >
-    <pre id="inspector-stats">No evaluation yet.</pre>
-  </section>
-</details>
+</main>
 </body>
 </html>

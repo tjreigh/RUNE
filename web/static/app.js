@@ -1,5 +1,5 @@
 const EXAMPLES = {
-  smoke: "2+2",
+  smoke: "2 + 2",
   variables: `animal = "cat"
 score = animal + 1
 score
@@ -18,54 +18,54 @@ not 0
 @chaos 10
 5 or 20
 if (5 or 20)
-99
+  99
 else
-0
+  0
 end if
 `,
   chaos: `"dog" + "cat"
 
 @chaos 1
 if ("dog" > "cat")
-1
+  1
 else
-0
+  0
 end if
 
 @chaos 500
 if ("dog" > "cat")
-1
+  1
 else
-0
+  0
 end if
 `,
   loops: `@chaos 3
 count = 5
 while (count)
-count
-count = count - 1
+  count
+  count = count - 1
 end while
 
 @chaos 1
 for i from 1 to 5 step 2
-i
+  i
 end for
 
 for i from 1 to 5
-if (i == 2)
-continue
-end if
-if (i == 5)
-break
-end if
-i
+  if (i == 2)
+    continue
+  end if
+  if (i == 5)
+    break
+  end if
+  i
 end for
 `,
   functions: `function factorial(n)
-if (n <= 1)
-return 1
-end if
-return n * factorial(n - 1)
+  if (n <= 1)
+    return 1
+  end if
+  return n * factorial(n - 1)
 end function
 
 factorial(5)
@@ -84,48 +84,48 @@ answer
 5 or missing
 not 0
 if ("dog" > "cat")
-1
+  1
 else
-0
+  0
 end if
 if (0)
-0
+  0
 elif (2)
-2
+  2
 else
-0
+  0
 end if
 @chaos 10
 5 or 20
 if (5 or 20)
-99
+  99
 else
-0
+  0
 end if
 @chaos 3
 count = 5
 while (count)
-count
-count = count - 1
+  count
+  count = count - 1
 end while
 @chaos 1
 for i from 1 to 5 step 2
-i
+  i
 end for
 for i from 1 to 5
-if (i == 2)
-continue
-end if
-if (i == 5)
-break
-end if
-i
+  if (i == 2)
+    continue
+  end if
+  if (i == 5)
+    break
+  end if
+  i
 end for
 function factorial(n)
-if (n <= 1)
-return 1
-end if
-return n * factorial(n - 1)
+  if (n <= 1)
+    return 1
+  end if
+  return n * factorial(n - 1)
 end function
 factorial(5)
 `,
@@ -139,7 +139,41 @@ const KIND_LABELS = {
   limit: "Execution limit",
 };
 
+const RUNE_KEYWORDS = new Set([
+  "if",
+  "elif",
+  "else",
+  "while",
+  "for",
+  "from",
+  "to",
+  "step",
+  "break",
+  "continue",
+  "function",
+  "return",
+  "end",
+  "and",
+  "or",
+  "not",
+]);
+
+const MULTI_CHARACTER_OPERATORS = [
+  "**",
+  "<<",
+  ">>",
+  "<=",
+  ">=",
+  "==",
+  "!=",
+];
+
 const sourceEl = document.getElementById("source");
+const editorFrameEl = document.getElementById("editor-frame");
+const editorThemeEl = document.getElementById("editor-theme");
+const highlightingEl = document.getElementById("highlighting");
+const highlightingContentEl = document.getElementById("highlighting-content");
+const sourcePositionEl = document.getElementById("source-position");
 const validationStatusEl = document.getElementById("validation-status");
 const outputEl = document.getElementById("output");
 const runBtn = document.getElementById("run");
@@ -162,13 +196,174 @@ let validationRequestSeq = 0;
 let validationController = null;
 let validationTimer = null;
 
+function applyEditorTheme(theme) {
+  const selectedTheme = theme === "light" ? "light" : "dark";
+  editorFrameEl.dataset.editorTheme = selectedTheme;
+  editorThemeEl.value = selectedTheme;
+
+  try {
+    localStorage.setItem("rune-editor-theme", selectedTheme);
+  } catch (_) {
+    // A private or restricted browser may not expose local storage.
+  }
+}
+
+function initialEditorTheme() {
+  try {
+    return localStorage.getItem("rune-editor-theme") ?? "dark";
+  } catch (_) {
+    return "dark";
+  }
+}
+
+editorThemeEl.addEventListener("change", () => {
+  applyEditorTheme(editorThemeEl.value);
+});
+
+function escapeHtml(text) {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function highlightedToken(kind, text) {
+  return `<span class="tok-${kind}">${escapeHtml(text)}</span>`;
+}
+
+function matchAt(source, offset, pattern) {
+  return source.slice(offset).match(pattern)?.[0] ?? null;
+}
+
+function highlightRune(source) {
+  let offset = 0;
+  let markup = "";
+  let expectsFunctionName = false;
+
+  while (offset < source.length) {
+    const rest = source.slice(offset);
+    const character = rest[0];
+
+    const whitespace = matchAt(source, offset, /^[\s]+/u);
+    if (whitespace !== null) {
+      markup += escapeHtml(whitespace);
+      offset += whitespace.length;
+      continue;
+    }
+
+    if (character === '"') {
+      const closingQuote = source.indexOf('"', offset + 1);
+      const end = closingQuote === -1 ? source.length : closingQuote + 1;
+      const literal = source.slice(offset, end);
+      markup += highlightedToken("string", literal);
+      offset = end;
+      expectsFunctionName = false;
+      continue;
+    }
+
+    const prefixedNumber = matchAt(
+      source,
+      offset,
+      /^0[bBoOxX][\p{L}\p{N}_]*/u,
+    );
+    if (prefixedNumber !== null) {
+      markup += highlightedToken("number", prefixedNumber);
+      offset += prefixedNumber.length;
+      expectsFunctionName = false;
+      continue;
+    }
+
+    const decimalNumber = matchAt(source, offset, /^\p{Nd}+/u);
+    if (decimalNumber !== null) {
+      markup += highlightedToken("number", decimalNumber);
+      offset += decimalNumber.length;
+      expectsFunctionName = false;
+      continue;
+    }
+
+    const identifier = matchAt(
+      source,
+      offset,
+      /^[\p{L}_][\p{L}\p{N}_]*/u,
+    );
+    if (identifier !== null) {
+      let kind = "identifier";
+      if (identifier === "chaos") {
+        kind = "directive";
+      } else if (RUNE_KEYWORDS.has(identifier)) {
+        kind = "keyword";
+      } else {
+        const followingSource = source.slice(offset + identifier.length);
+        if (expectsFunctionName || /^\s*\(/u.test(followingSource)) {
+          kind = "function";
+        }
+      }
+      markup += highlightedToken(kind, identifier);
+      offset += identifier.length;
+      expectsFunctionName = identifier === "function";
+      continue;
+    }
+
+    if (character === "@") {
+      markup += highlightedToken("directive", character);
+      ++offset;
+      expectsFunctionName = false;
+      continue;
+    }
+
+    const operator = MULTI_CHARACTER_OPERATORS.find(
+      (candidate) => rest.startsWith(candidate),
+    ) ?? (/[+\-*/%~&|^<>=!]/u.test(character) ? character : null);
+    if (operator !== null) {
+      markup += highlightedToken("operator", operator);
+      offset += operator.length;
+      expectsFunctionName = false;
+      continue;
+    }
+
+    if (/[(),]/u.test(character)) {
+      markup += highlightedToken("punctuation", character);
+      ++offset;
+      continue;
+    }
+
+    const codePoint = String.fromCodePoint(source.codePointAt(offset));
+    markup += escapeHtml(codePoint);
+    offset += codePoint.length;
+    expectsFunctionName = false;
+  }
+
+  // A trailing newline otherwise collapses in the backdrop and makes the
+  // textarea and highlighted layer disagree about their scroll height.
+  return source.endsWith("\n") ? `${markup} ` : markup;
+}
+
+function updateEditorHighlighting() {
+  highlightingContentEl.innerHTML = highlightRune(sourceEl.value);
+}
+
+function syncEditorScroll() {
+  highlightingEl.scrollTop = sourceEl.scrollTop;
+  highlightingEl.scrollLeft = sourceEl.scrollLeft;
+}
+
+function updateSourcePosition() {
+  const beforeCursor = sourceEl.value.slice(0, sourceEl.selectionStart);
+  const lines = beforeCursor.split("\n");
+  const line = lines.length;
+  const column = Array.from(lines.at(-1)).length + 1;
+  sourcePositionEl.textContent = `Ln ${line}, Col ${column}`;
+}
+
 examplesEl.addEventListener("change", () => {
   const key = examplesEl.value;
   if (key && EXAMPLES[key] !== undefined) {
     sourceEl.value = EXAMPLES[key];
+    updateEditorHighlighting();
+    syncEditorScroll();
+    updateSourcePosition();
     scheduleValidation();
   }
-  examplesEl.value = "";
 });
 
 function formatDiagnostic(diagnostic) {
@@ -211,6 +406,7 @@ function selectDiagnosticSpan(span) {
   const end = sourceOffsetAtPosition(source, span.end);
   sourceEl.focus();
   sourceEl.setSelectionRange(start, end);
+  updateSourcePosition();
 }
 
 function renderValidationStatus(kind, text, span = null) {
@@ -317,7 +513,22 @@ function scheduleValidation() {
   }, 300);
 }
 
-sourceEl.addEventListener("input", scheduleValidation);
+sourceEl.addEventListener("input", () => {
+  examplesEl.value = "";
+  updateEditorHighlighting();
+  updateSourcePosition();
+  scheduleValidation();
+});
+sourceEl.addEventListener("scroll", syncEditorScroll);
+sourceEl.addEventListener("click", updateSourcePosition);
+sourceEl.addEventListener("keyup", updateSourcePosition);
+sourceEl.addEventListener("select", updateSourcePosition);
+sourceEl.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    runBtn.click();
+  }
+});
 
 function formatRequestDetail(detail) {
   if (typeof detail === "string") {
@@ -518,5 +729,9 @@ runBtn.addEventListener("click", async () => {
     }
   }
 });
+
+updateEditorHighlighting();
+updateSourcePosition();
+applyEditorTheme(initialEditorTheme());
 
 scheduleValidation();

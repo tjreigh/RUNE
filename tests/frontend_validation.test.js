@@ -8,11 +8,15 @@ class FakeElement {
   constructor(value = "") {
     this.value = value;
     this.textContent = "";
+    this.innerHTML = "";
     this.className = "";
     this.listeners = new Map();
     this.children = [];
     this.selectionStart = 0;
     this.selectionEnd = 0;
+    this.scrollTop = 0;
+    this.scrollLeft = 0;
+    this.dataset = {};
     this.disabled = false;
   }
 
@@ -20,8 +24,8 @@ class FakeElement {
     this.listeners.set(kind, listener);
   }
 
-  dispatch(kind) {
-    return this.listeners.get(kind)?.({});
+  dispatch(kind, event = {}) {
+    return this.listeners.get(kind)?.(event);
   }
 
   replaceChildren(...children) {
@@ -59,12 +63,18 @@ function response(body, status = 200) {
 
 function loadApp(fetchImpl) {
   const elements = new Map();
+  const storedValues = new Map();
   const element = (id, value = "") => {
     const created = new FakeElement(value);
     elements.set(id, created);
     return created;
   };
   element("source", "1");
+  element("editor-frame");
+  element("editor-theme", "dark");
+  element("highlighting");
+  element("highlighting-content");
+  element("source-position");
   element("validation-status");
   element("output");
   element("run");
@@ -86,11 +96,15 @@ function loadApp(fetchImpl) {
     console,
     document,
     fetch: fetchImpl,
+    localStorage: {
+      getItem: (key) => storedValues.get(key) ?? null,
+      setItem: (key, value) => storedValues.set(key, value),
+    },
     setTimeout,
   });
   const appPath = path.join(__dirname, "..", "web", "static", "app.js");
   vm.runInContext(fs.readFileSync(appPath, "utf8"), context);
-  return { elements };
+  return { context, elements, storedValues };
 }
 
 const waitForDebounce = () => new Promise((resolve) => setTimeout(resolve, 325));
@@ -165,4 +179,69 @@ test("clicking a Unicode diagnostic selects its source span", async () => {
   status.children[0].dispatch("click");
   assert.equal(source.selectionStart, 4);
   assert.equal(source.selectionEnd, 5);
+});
+
+test("RUNE highlighting recognizes language tokens and escapes source", () => {
+  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
+  const markup = vm.runInContext(
+    'highlightRune(\'@chaos 5\\nfunction add(x)\\nreturn x + "<tag>"\\nend function\')',
+    app.context,
+  );
+
+  assert.match(markup, /class="tok-directive">@<\/span>/);
+  assert.match(markup, /class="tok-directive">chaos<\/span>/);
+  assert.match(markup, /class="tok-number">5<\/span>/);
+  assert.match(markup, /class="tok-keyword">function<\/span>/);
+  assert.match(markup, /class="tok-function">add<\/span>/);
+  assert.match(markup, /class="tok-keyword">return<\/span>/);
+  assert.match(markup, /class="tok-string">"&lt;tag&gt;"<\/span>/);
+  assert.doesNotMatch(markup, /<tag>/);
+});
+
+test("the highlighted layer and cursor position follow editor changes", () => {
+  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
+  const source = app.elements.get("source");
+  const highlighting = app.elements.get("highlighting");
+  const highlightedContent = app.elements.get("highlighting-content");
+  const position = app.elements.get("source-position");
+
+  source.value = 'face = "😀"\nface';
+  source.selectionStart = source.value.length;
+  source.dispatch("input");
+  assert.match(highlightedContent.innerHTML, /class="tok-string">"😀"<\/span>/);
+  assert.equal(position.textContent, "Ln 2, Col 5");
+
+  source.scrollTop = 24;
+  source.scrollLeft = 8;
+  source.dispatch("scroll");
+  assert.equal(highlighting.scrollTop, 24);
+  assert.equal(highlighting.scrollLeft, 8);
+});
+
+test("editor theme changes are applied and remembered", () => {
+  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
+  const frame = app.elements.get("editor-frame");
+  const theme = app.elements.get("editor-theme");
+
+  assert.equal(frame.dataset.editorTheme, "dark");
+  theme.value = "light";
+  theme.dispatch("change");
+
+  assert.equal(frame.dataset.editorTheme, "light");
+  assert.equal(app.storedValues.get("rune-editor-theme"), "light");
+});
+
+test("the selected example stays visible until its source is edited", () => {
+  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
+  const examples = app.elements.get("examples");
+  const source = app.elements.get("source");
+
+  examples.value = "loops";
+  examples.dispatch("change");
+  assert.equal(examples.value, "loops");
+  assert.match(source.value, /\n  count\n  count = count - 1\n/);
+
+  source.value += "\n";
+  source.dispatch("input");
+  assert.equal(examples.value, "");
 });

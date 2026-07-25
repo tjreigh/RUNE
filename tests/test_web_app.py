@@ -649,8 +649,15 @@ def test_root_route_serves_html():
     assert 'id="inspector-state">Chaos threshold: 1' in response.text
     assert 'id="validation-status"' in response.text
     assert 'role="status"' in response.text
-    assert 'href="/static/style.css?v=0.6.0"' in response.text
-    assert 'src="/static/app.js?v=0.6.0"' in response.text
+    assert 'id="highlighting-content"' in response.text
+    assert 'id="source-position"' in response.text
+    assert 'id="editor-theme"' in response.text
+    assert 'data-editor-theme="dark"' in response.text
+    assert 'id="guide-heading">How RUNE works<' in response.text
+    assert "Truth has a threshold" in response.text
+    assert "Strings collapse to the sum of their Unicode code points" in response.text
+    assert 'href="/static/style.css?v=0.7.0"' in response.text
+    assert 'src="/static/app.js?v=0.7.0"' in response.text
 
 
 def test_static_css_and_javascript_are_served_separately():
@@ -681,6 +688,10 @@ def test_static_css_and_javascript_are_served_separately():
     assert "mySeq !== validationRequestSeq" in javascript.text
     assert "}, 300);" in javascript.text
     assert "setSelectionRange(start, end)" in javascript.text
+    assert "function highlightRune(source)" in javascript.text
+    assert "updateEditorHighlighting()" in javascript.text
+    assert "syncEditorScroll" in javascript.text
+    assert 'localStorage.setItem("rune-editor-theme"' in javascript.text
     assert "payload.state" not in javascript.text
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
     assert "heldEvents = result.events ?? []" in javascript.text
