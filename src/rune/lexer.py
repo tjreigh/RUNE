@@ -265,7 +265,9 @@ class Lexer:
 
         if self.pos >= len(self.text):
             raise RuneLexError(
-                "Unterminated string literal", self.span_from(string_start)
+                "Unterminated string literal",
+                self.span_from(string_start),
+                incomplete=True,
             )
 
         string_val = self.text[start:self.pos]

@@ -285,6 +285,7 @@ def test_missing_closing_parenthesis_reports_eof_span():
 
     assert exc_info.value.diagnostic.message == "Expected RPAREN, got EOF"
     assert exc_info.value.diagnostic.span == SourceSpan.at(Position(1, 7))
+    assert exc_info.value.incomplete is True
 
 
 @pytest.mark.parametrize("wrapper", [("(", ")"), ("-", "")])
@@ -417,6 +418,7 @@ def test_while_requires_matching_typed_terminator():
     assert exc_info.value.diagnostic.span == SourceSpan(
         Position(2, 5), Position(2, 7)
     )
+    assert exc_info.value.incomplete is False
 
 
 def test_for_loop_is_inclusive_and_has_full_span():
@@ -498,6 +500,7 @@ def test_missing_end_raises_parse_error():
     with pytest.raises(RuneParseError) as exc_info:
         _parse("if (1)\n1\n")
     assert exc_info.value.diagnostic.span == SourceSpan.at(Position(3, 1))
+    assert exc_info.value.incomplete is True
 
 
 def test_bare_end_requires_block_type():

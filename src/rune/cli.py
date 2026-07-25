@@ -14,9 +14,10 @@ Usage:
 
 import sys
 import argparse
+from enum import Enum
 from pathlib import Path
 
-from .runtime import RuntimeState, compile_source, execute, evaluate
+from .runtime import RuntimeState, compile_source, execute
 from .diagnostics import RuneError, Diagnostic, DiagnosticKind
 from .limits import ExecutionLimits
 
@@ -27,6 +28,28 @@ _ERROR_LABELS = {
     DiagnosticKind.INTERNAL: "Internal error",
     DiagnosticKind.LIMIT: "Execution limit",
 }
+
+
+class _ReplInputStatus(Enum):
+    EMPTY = "empty"
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    INVALID = "invalid"
+
+
+def _compile_repl_input(source):
+    """Classify one terminal draft and retain a successful compilation."""
+    try:
+        return _ReplInputStatus.COMPLETE, compile_source(source)
+    except RuneError as error:
+        if (
+            error.diagnostic.kind == DiagnosticKind.PARSE
+            and error.diagnostic.message == "Empty program"
+        ):
+            return _ReplInputStatus.EMPTY, error
+        if error.incomplete:
+            return _ReplInputStatus.INCOMPLETE, error
+        return _ReplInputStatus.INVALID, error
 
 
 def format_diagnostic(diag: Diagnostic) -> str:
@@ -142,19 +165,80 @@ def run_code(
 def repl(limits=None):
     """Interactive REPL mode"""
     print("RUNE Interactive REPL")
-    print("Type expressions to evaluate them. Ctrl+C or Ctrl+D to exit.")
+    print("Complete lines run immediately; blank line runs a multiline draft.")
+    print("Ctrl+C clears a draft or exits when idle. Ctrl+D exits.")
     print("=" * 60)
-    
+
     state = RuntimeState()
+    draft = ""
+    draft_status = None
+    draft_program = None
 
     while True:
         try:
-            code = input("rune> ")
+            line = input("...> " if draft else "rune> ")
 
-            if not code.strip():
+            if not draft and not line.strip():
                 continue
 
-            result = evaluate(code, state, limits=limits)
+            if draft and not line and draft_status == _ReplInputStatus.COMPLETE:
+                program = draft_program
+                draft = ""
+                draft_status = None
+                draft_program = None
+            else:
+                candidate = line if not draft else f"{draft}\n{line}"
+                status, compiled_or_error = _compile_repl_input(candidate)
+
+                # An expression may be incomplete at the end of one terminal
+                # line even though RUNE newlines normally separate statements.
+                # If preserving the newline makes the draft invalid, retry the
+                # new fragment as whitespace continuation.
+                if (
+                    draft
+                    and draft_status == _ReplInputStatus.INCOMPLETE
+                    and status == _ReplInputStatus.INVALID
+                ):
+                    continued = f"{draft} {line}"
+                    continued_status, continued_result = _compile_repl_input(
+                        continued
+                    )
+                    if continued_status in {
+                        _ReplInputStatus.COMPLETE,
+                        _ReplInputStatus.INCOMPLETE,
+                    }:
+                        candidate = continued
+                        status = continued_status
+                        compiled_or_error = continued_result
+
+                if status == _ReplInputStatus.EMPTY:
+                    draft = ""
+                    draft_status = None
+                    draft_program = None
+                    continue
+                if status == _ReplInputStatus.INVALID:
+                    print(format_error(compiled_or_error))
+                    draft = ""
+                    draft_status = None
+                    draft_program = None
+                    continue
+                if status == _ReplInputStatus.INCOMPLETE or draft:
+                    draft = candidate
+                    draft_status = status
+                    draft_program = (
+                        compiled_or_error
+                        if status == _ReplInputStatus.COMPLETE
+                        else None
+                    )
+                    continue
+
+                program = compiled_or_error
+
+            result = execute(
+                program,
+                state=state,
+                limits=limits,
+            )
 
             if result.ok:
                 state = result.state
@@ -168,6 +252,12 @@ def repl(limits=None):
             print("\nGoodbye!")
             break
         except KeyboardInterrupt:
+            if draft:
+                draft = ""
+                draft_status = None
+                draft_program = None
+                print("\nDraft cleared.")
+                continue
             print("\nGoodbye!")
             break
         except Exception as e:

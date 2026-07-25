@@ -166,6 +166,94 @@ def test_repl_state_survives_failed_evaluation_unchanged(monkeypatch, capsys):
     assert "=> 0" in out
 
 
+def test_repl_collects_and_runs_a_multiline_block(monkeypatch, capsys):
+    prompts = []
+    inputs = iter(["if (1)", "  42", "end if", ""])
+
+    def fake_input(prompt=""):
+        prompts.append(prompt)
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    rune.repl()
+
+    assert "=> 42" in capsys.readouterr().out
+    assert prompts[:4] == ["rune> ", "...> ", "...> ", "...> "]
+
+
+def test_repl_keeps_function_and_call_in_one_multiline_unit(
+    monkeypatch,
+    capsys,
+):
+    _scripted_repl(
+        monkeypatch,
+        [
+            "function answer()",
+            "  return 42",
+            "end function",
+            "answer()",
+            "",
+        ],
+    )
+
+    assert "=> 42" in capsys.readouterr().out
+
+
+def test_repl_continues_an_expression_across_terminal_lines(
+    monkeypatch,
+    capsys,
+):
+    _scripted_repl(
+        monkeypatch,
+        [
+            "answer = (40 +",
+            "2)",
+            "",
+            "answer",
+        ],
+    )
+
+    assert "=> 42" in capsys.readouterr().out
+
+
+def test_repl_ignores_comment_only_input(monkeypatch, capsys):
+    _scripted_repl(monkeypatch, ["# nothing to execute", "2 + 2"])
+
+    out = capsys.readouterr().out
+    assert "Parse error" not in out
+    assert "=> 4" in out
+
+
+def test_repl_ctrl_c_clears_only_the_active_draft(monkeypatch, capsys):
+    inputs = iter([
+        "answer = 40",
+        "if (1)",
+        KeyboardInterrupt(),
+        "answer",
+    ])
+
+    def fake_input(prompt=""):
+        try:
+            value = next(inputs)
+        except StopIteration:
+            raise EOFError
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    rune.repl()
+
+    out = capsys.readouterr().out
+    assert "Draft cleared." in out
+    assert "=> 40" in out
+
+
 def test_main_unbounded_flag_selects_trusted_policy_for_file(monkeypatch):
     observed = {}
 

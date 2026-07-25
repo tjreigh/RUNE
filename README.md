@@ -237,7 +237,13 @@ scripts/setup.sh
 
 The editable install created by `scripts/setup.sh` also exposes the public
 runtime API as `import rune` and supports `python -m rune`. Start the terminal
-REPL with `.venv/bin/rune --repl`, or launch the web REPL with:
+REPL with `.venv/bin/rune --repl`. Complete single-line programs execute
+immediately. Incomplete expressions and typed blocks use the `...>` continuation
+prompt; submit a complete multiline draft with a blank line. Ctrl+C clears an
+active draft without changing committed variables or chaos state, and exits
+when the prompt is idle.
+
+Launch the web REPL with:
 
 ```sh
 scripts/run-web.sh

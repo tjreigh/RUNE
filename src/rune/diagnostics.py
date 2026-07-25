@@ -37,19 +37,38 @@ class Diagnostic:
 
 class RuneError(Exception):
     """Common base for all structured RUNE diagnostics."""
-    def __init__(self, diagnostic: Diagnostic):
+    def __init__(self, diagnostic: Diagnostic, *, incomplete: bool = False):
         self.diagnostic = diagnostic
+        self.incomplete = incomplete
         super().__init__(diagnostic.format())
 
 
 class RuneLexError(RuneError):
-    def __init__(self, message: str, span: SourceSpan | None = None):
-        super().__init__(Diagnostic(message, DiagnosticKind.LEX, span))
+    def __init__(
+        self,
+        message: str,
+        span: SourceSpan | None = None,
+        *,
+        incomplete: bool = False,
+    ):
+        super().__init__(
+            Diagnostic(message, DiagnosticKind.LEX, span),
+            incomplete=incomplete,
+        )
 
 
 class RuneParseError(RuneError):
-    def __init__(self, message: str, span: SourceSpan | None = None):
-        super().__init__(Diagnostic(message, DiagnosticKind.PARSE, span))
+    def __init__(
+        self,
+        message: str,
+        span: SourceSpan | None = None,
+        *,
+        incomplete: bool = False,
+    ):
+        super().__init__(
+            Diagnostic(message, DiagnosticKind.PARSE, span),
+            incomplete=incomplete,
+        )
 
 
 class RuneRuntimeError(RuneError):

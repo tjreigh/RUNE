@@ -342,3 +342,4 @@ def test_unterminated_string_raises_lex_error_at_opening_quote():
     assert exc_info.value.diagnostic.span == SourceSpan(
         Position(1, 1), Position(1, 14)
     )
+    assert exc_info.value.incomplete is True

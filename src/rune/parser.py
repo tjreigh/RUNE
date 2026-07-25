@@ -114,9 +114,11 @@ class Parser:
         if self.current_token().type == token_type:
             self.pos += 1
         else:
+            current = self.current_token()
             raise RuneParseError(
-                f"Expected {token_type.value}, got {self.current_token().type.value}",
-                self.current_token().span,
+                f"Expected {token_type.value}, got {current.type.value}",
+                current.span,
+                incomplete=current.type == TokenType.EOF,
             )
 
     def parse(self):
@@ -185,6 +187,7 @@ class Parser:
                 raise RuneParseError(
                     f"Unexpected end of input; expected one of: {expected}",
                     self.current_token().span,
+                    incomplete=True,
                 )
 
             statements.append(self.statement())
@@ -200,6 +203,7 @@ class Parser:
             raise RuneParseError(
                 f"Expected '{label}' after 'end'",
                 self.current_token().span,
+                incomplete=self.current_token().type == TokenType.EOF,
             )
         closing = self.current_token()
         self.eat(block_type)
@@ -579,4 +583,8 @@ class Parser:
                 span=SourceSpan(token.span.start, closing.span.end),
             )
         else:
-            raise RuneParseError(f"Unexpected token: {token.type.value}", token.span)
+            raise RuneParseError(
+                f"Unexpected token: {token.type.value}",
+                token.span,
+                incomplete=token.type == TokenType.EOF,
+            )
