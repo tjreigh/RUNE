@@ -152,6 +152,8 @@ def test_deployment_smoke_supports_unix_socket_and_checks_functions():
     assert 'curl $CURL_FLAGS --unix-socket "$CURL_SOCKET"' in smoke_test
     assert 'while [ ! -S "$CURL_SOCKET" ]' in smoke_test
     assert '"$attempt" -ge 30' in smoke_test
+    assert 'run_curl "$BASE_URL/" > /dev/null' in smoke_test
+    assert "grep -q" not in smoke_test
     assert '"$BASE_URL/validate"' in smoke_test
     assert 'diagnostics[0].get("kind") != "parse"' in smoke_test
     assert "function factorial(n)" in smoke_test

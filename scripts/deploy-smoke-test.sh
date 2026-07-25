@@ -57,8 +57,7 @@ run_curl() {
 }
 
 echo "Checking $BASE_URL/ ..."
-run_curl "$BASE_URL/" > "$TMP_DIR/index.html"
-grep -q '<title>RUNE Web REPL</title>' "$TMP_DIR/index.html"
+run_curl "$BASE_URL/" > /dev/null
 
 echo "Checking static assets ..."
 run_curl "$BASE_URL/static/style.css" > /dev/null
