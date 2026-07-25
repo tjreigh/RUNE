@@ -1,136 +1,3 @@
-const EXAMPLES = {
-  smoke: "2 + 2",
-  variables: `animal = "cat"
-score = animal + 1
-score
-`,
-  expressions: `0b101010
-(2 + 3) ** 2
--17 / 5
--17 % 5
-(0b1010 << 2 | 0b0011) ^ 1
-`,
-  logic: `@chaos 1
-0 and missing
-5 or missing
-not 0
-
-@chaos 10
-5 or 20
-if (5 or 20)
-  99
-else
-  0
-end if
-`,
-  chaos: `"dog" + "cat"
-
-@chaos 1
-if ("dog" > "cat")
-  1
-else
-  0
-end if
-
-@chaos 500
-if ("dog" > "cat")
-  1
-else
-  0
-end if
-`,
-  loops: `@chaos 3
-count = 5
-while (count)
-  count
-  count = count - 1
-end while
-
-@chaos 1
-for i from 1 to 5 step 2
-  i
-end for
-
-for i from 1 to 5
-  if (i == 2)
-    continue
-  end if
-  if (i == 5)
-    break
-  end if
-  i
-end for
-`,
-  functions: `function factorial(n)
-  if (n <= 1)
-    return 1
-  end if
-  return n * factorial(n - 1)
-end function
-
-factorial(5)
-`,
-  full: `answer = 40
-answer = answer + 2
-answer
-0b101010
-(2 + 3) ** 2
--17 / 5
--17 % 5
-(0b1010 << 2 | 0b0011) ^ 1
-"dog" + "cat"
-@chaos 1
-0 and missing
-5 or missing
-not 0
-if ("dog" > "cat")
-  1
-else
-  0
-end if
-if (0)
-  0
-elif (2)
-  2
-else
-  0
-end if
-@chaos 10
-5 or 20
-if (5 or 20)
-  99
-else
-  0
-end if
-@chaos 3
-count = 5
-while (count)
-  count
-  count = count - 1
-end while
-@chaos 1
-for i from 1 to 5 step 2
-  i
-end for
-for i from 1 to 5
-  if (i == 2)
-    continue
-  end if
-  if (i == 5)
-    break
-  end if
-  i
-end for
-function factorial(n)
-  if (n <= 1)
-    return 1
-  end if
-  return n * factorial(n - 1)
-end function
-factorial(5)
-`,
-};
-
 const KIND_LABELS = {
   lex: "Lex error",
   parse: "Parse error",
@@ -195,6 +62,8 @@ let activeController = null;
 let validationRequestSeq = 0;
 let validationController = null;
 let validationTimer = null;
+let exampleRequestSeq = 0;
+let exampleController = null;
 
 function applyEditorTheme(theme) {
   const selectedTheme = theme === "light" ? "light" : "dark";
@@ -355,14 +224,60 @@ function updateSourcePosition() {
   sourcePositionEl.textContent = `Ln ${line}, Col ${column}`;
 }
 
-examplesEl.addEventListener("change", () => {
+examplesEl.addEventListener("change", async () => {
   const key = examplesEl.value;
-  if (key && EXAMPLES[key] !== undefined) {
-    sourceEl.value = EXAMPLES[key];
+  const mySeq = ++exampleRequestSeq;
+
+  if (exampleController !== null) {
+    exampleController.abort();
+    exampleController = null;
+  }
+  if (!key) {
+    return;
+  }
+
+  const controller = new AbortController();
+  exampleController = controller;
+  renderValidationStatus("neutral", "Loading example…");
+
+  try {
+    const response = await fetch(
+      `/examples/${encodeURIComponent(key)}.rune`,
+      { signal: controller.signal },
+    );
+    if (mySeq !== exampleRequestSeq) {
+      return;
+    }
+    if (!response.ok) {
+      renderValidationStatus(
+        "unavailable",
+        `Could not load example (${response.status}).`,
+      );
+      return;
+    }
+
+    sourceEl.value = await response.text();
+    if (mySeq !== exampleRequestSeq) {
+      return;
+    }
     updateEditorHighlighting();
     syncEditorScroll();
     updateSourcePosition();
     scheduleValidation();
+  } catch (networkError) {
+    if (
+      networkError.name !== "AbortError"
+      && mySeq === exampleRequestSeq
+    ) {
+      renderValidationStatus("unavailable", "Could not load example.");
+    }
+  } finally {
+    if (
+      mySeq === exampleRequestSeq
+      && exampleController === controller
+    ) {
+      exampleController = null;
+    }
   }
 });
 
@@ -514,6 +429,11 @@ function scheduleValidation() {
 }
 
 sourceEl.addEventListener("input", () => {
+  ++exampleRequestSeq;
+  if (exampleController !== null) {
+    exampleController.abort();
+    exampleController = null;
+  }
   examplesEl.value = "";
   updateEditorHighlighting();
   updateSourcePosition();

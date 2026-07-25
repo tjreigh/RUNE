@@ -58,6 +58,9 @@ function response(body, status = 200) {
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
+    text: async () => (
+      typeof body === "string" ? body : JSON.stringify(body)
+    ),
   };
 }
 
@@ -231,13 +234,22 @@ test("editor theme changes are applied and remembered", () => {
   assert.equal(app.storedValues.get("rune-editor-theme"), "light");
 });
 
-test("the selected example stays visible until its source is edited", () => {
-  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
+test("the selected example stays visible until its source is edited", async () => {
+  const loops = `while (count)
+  count
+  count = count - 1
+end while
+`;
+  const app = loadApp(async (url) => (
+    url === "/examples/loops.rune"
+      ? response(loops)
+      : response({ ok: true, diagnostics: [] })
+  ));
   const examples = app.elements.get("examples");
   const source = app.elements.get("source");
 
   examples.value = "loops";
-  examples.dispatch("change");
+  await examples.dispatch("change");
   assert.equal(examples.value, "loops");
   assert.match(source.value, /\n  count\n  count = count - 1\n/);
 

@@ -1,0 +1,15 @@
+"dog" + "cat"
+
+@chaos 1
+if ("dog" > "cat")
+  1
+else
+  0
+end if
+
+@chaos 500
+if ("dog" > "cat")
+  1
+else
+  0
+end if

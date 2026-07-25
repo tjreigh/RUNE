@@ -28,7 +28,9 @@ from sessions import (
     SessionStore,
 )
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+STATIC_DIR = REPO_ROOT / "web" / "static"
+EXAMPLES_DIR = REPO_ROOT / "examples"
 DEFAULT_MAX_CONCURRENT_EVALUATIONS = 2
 DEFAULT_MAX_CONCURRENT_VALIDATIONS = 4
 GLOBAL_EVALUATION_LIMIT_KEY = "all-evaluations"
@@ -294,6 +296,11 @@ def create_app(
         "/static",
         RevalidatingStaticFiles(directory=STATIC_DIR),
         name="static",
+    )
+    app.mount(
+        "/examples",
+        RevalidatingStaticFiles(directory=EXAMPLES_DIR),
+        name="examples",
     )
     rate_limiter = FixedWindowRateLimiter(rate_limit_max, rate_limit_window)
     global_rate_limiter = FixedWindowRateLimiter(

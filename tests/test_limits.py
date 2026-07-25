@@ -584,8 +584,8 @@ def test_failed_limited_execution_reports_stats_before_termination():
     assert result.stats.output_values == 2
 
 
-def test_default_limits_execute_test_rune():
-    source = (REPO_ROOT / "test.rune").read_text()
+def test_default_limits_execute_full_example():
+    source = (REPO_ROOT / "examples" / "full.rune").read_text()
     result = evaluate(source)
     assert result.ok
     assert result.values == [

@@ -6,6 +6,19 @@ sums, and a configurable chaos threshold means even `1` can be falsy.
 
 Try it in the public web REPL: [rune.tjreigh.mobi](https://rune.tjreigh.mobi/).
 
+## Example programs
+
+The web REPL loads these same source files:
+
+- [Hello, arithmetic](examples/smoke.rune)
+- [Variables](examples/variables.rune)
+- [Expressions](examples/expressions.rune)
+- [Chaos-aware logic](examples/logic.rune)
+- [`@chaos` threshold demo](examples/chaos.rune)
+- [Loops](examples/loops.rune)
+- [Functions and recursion](examples/functions.rune)
+- [Full language walkthrough](examples/full.rune)
+
 ## The language
 
 ### Chaos logic and conditionals
@@ -208,7 +221,7 @@ RUNE requires Python 3.12 or newer.
 
 ```sh
 scripts/setup.sh
-.venv/bin/rune test.rune
+.venv/bin/rune examples/full.rune
 ```
 
 The editable install created by `scripts/setup.sh` also exposes the public

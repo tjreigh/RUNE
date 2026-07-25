@@ -673,15 +673,9 @@ def test_static_css_and_javascript_are_served_separately():
     assert "javascript" in javascript.headers["content-type"]
     assert javascript.headers["cache-control"] == "no-cache"
     assert "payload.session_id = sessionId" in javascript.text
-    assert "0 and missing" in javascript.text
-    assert "(0b1010 << 2 | 0b0011) ^ 1" in javascript.text
-    assert "while (count)" in javascript.text
-    assert "for i from 1 to 5 step 2" in javascript.text
-    assert "continue" in javascript.text
-    assert "function factorial(n)" in javascript.text
-    assert "return n * factorial(n - 1)" in javascript.text
-    test_rune = (Path(__file__).resolve().parent.parent / "test.rune").read_text()
-    assert f"full: `{test_rune}`" in javascript.text
+    assert "`/examples/${encodeURIComponent(key)}.rune`" in javascript.text
+    assert "0 and missing" not in javascript.text
+    assert "function factorial(n)" not in javascript.text
     assert 'fetch("/reset"' in javascript.text
     assert 'fetch("/validate"' in javascript.text
     assert "validationController.abort()" in javascript.text
@@ -703,6 +697,34 @@ def test_static_css_and_javascript_are_served_separately():
     assert "sessionId" not in javascript.text.split("function formatState", 1)[1].split(
         "function formatEvent", 1
     )[0]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "smoke",
+        "variables",
+        "expressions",
+        "logic",
+        "chaos",
+        "loops",
+        "functions",
+        "full",
+    ],
+)
+def test_example_gallery_serves_canonical_valid_source(name):
+    client = TestClient(create_app())
+    example_path = Path(__file__).resolve().parent.parent / "examples" / f"{name}.rune"
+
+    response = client.get(f"/examples/{name}.rune")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.text == example_path.read_text()
+    assert client.post("/validate", json={"source": response.text}).json() == {
+        "ok": True,
+        "diagnostics": [],
+    }
 
 
 def test_default_state_behavior():

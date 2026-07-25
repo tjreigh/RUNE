@@ -6,7 +6,7 @@ from rune.limits import ExecutionLimits
 rune = cli
 
 TEST_RUNE_SOURCE = (
-    Path(__file__).resolve().parent.parent / "test.rune"
+    Path(__file__).resolve().parent.parent / "examples" / "full.rune"
 ).read_text()
 
 EXPECTED_OUTPUT = (
