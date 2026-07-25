@@ -19,6 +19,12 @@ The web REPL loads these same source files:
 - [Functions and recursion](examples/functions.rune)
 - [Full language walkthrough](examples/full.rune)
 
+## Documentation
+
+- [RUNE 0.8 language reference](docs/language-reference-0.8.md) — draft for
+  the next release
+- [Changelog](CHANGELOG.md)
+
 ## The language
 
 ### Chaos logic and conditionals
