@@ -652,7 +652,18 @@ def test_root_route_serves_html():
     assert 'id="highlighting-content"' in response.text
     assert 'id="source-position"' in response.text
     assert 'id="editor-theme"' in response.text
-    assert 'data-editor-theme="dark"' in response.text
+    assert 'id="page-theme"' in response.text
+    assert '<option value="system">System</option>' in response.text
+    assert '<option value="classic-dark">Classic Dark</option>' in response.text
+    assert '<option value="ultraviolet">Ultraviolet</option>' in response.text
+    assert '<option value="classic-light">Classic Light</option>' in response.text
+    assert '<option value="cool-light">Cool Light</option>' in response.text
+    assert 'data-page-theme="system"' in response.text
+    assert 'data-editor-theme="classic-dark"' in response.text
+    header = response.text.split('<header class="site-header">', 1)[1].split(
+        "</header>", 1
+    )[0]
+    assert 'id="page-theme"' in header
     assert 'id="guide-heading">How RUNE works<' in response.text
     assert "Truth has a threshold" in response.text
     assert "Strings collapse to the sum of their Unicode code points" in response.text
@@ -667,6 +678,10 @@ def test_static_css_and_javascript_are_served_separately():
     assert css.status_code == 200
     assert "text/css" in css.headers["content-type"]
     assert css.headers["cache-control"] == "no-cache"
+    assert "@media (prefers-color-scheme: dark)" in css.text
+    assert '[data-page-theme="system"]' in css.text
+    assert '[data-editor-theme="ultraviolet"]' in css.text
+    assert '[data-editor-theme="cool-light"]' in css.text
 
     javascript = client.get("/static/app.js")
     assert javascript.status_code == 200
@@ -686,6 +701,7 @@ def test_static_css_and_javascript_are_served_separately():
     assert "updateEditorHighlighting()" in javascript.text
     assert "syncEditorScroll" in javascript.text
     assert 'localStorage.setItem("rune-editor-theme"' in javascript.text
+    assert 'localStorage.setItem("rune-page-theme"' in javascript.text
     assert "payload.state" not in javascript.text
     assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
     assert "heldEvents = result.events ?? []" in javascript.text

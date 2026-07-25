@@ -64,9 +64,9 @@ function response(body, status = 200) {
   };
 }
 
-function loadApp(fetchImpl) {
+function loadApp(fetchImpl, initialStoredValues = []) {
   const elements = new Map();
-  const storedValues = new Map();
+  const storedValues = new Map(initialStoredValues);
   const element = (id, value = "") => {
     const created = new FakeElement(value);
     elements.set(id, created);
@@ -74,7 +74,8 @@ function loadApp(fetchImpl) {
   };
   element("source", "1");
   element("editor-frame");
-  element("editor-theme", "dark");
+  element("editor-theme", "classic-dark");
+  element("page-theme", "system");
   element("highlighting");
   element("highlighting-content");
   element("source-position");
@@ -89,6 +90,7 @@ function loadApp(fetchImpl) {
   element("inspector-stats");
 
   const document = {
+    documentElement: new FakeElement(),
     getElementById: (id) => elements.get(id),
     querySelectorAll: () => [],
     createElement: () => new FakeElement(),
@@ -227,12 +229,78 @@ test("editor theme changes are applied and remembered", () => {
   const frame = app.elements.get("editor-frame");
   const theme = app.elements.get("editor-theme");
 
-  assert.equal(frame.dataset.editorTheme, "dark");
-  theme.value = "light";
+  assert.equal(frame.dataset.editorTheme, "classic-dark");
+  theme.value = "ultraviolet";
   theme.dispatch("change");
 
-  assert.equal(frame.dataset.editorTheme, "light");
-  assert.equal(app.storedValues.get("rune-editor-theme"), "light");
+  assert.equal(frame.dataset.editorTheme, "ultraviolet");
+  assert.equal(app.storedValues.get("rune-editor-theme"), "ultraviolet");
+});
+
+test("legacy editor theme preferences migrate to classic variants", () => {
+  const app = loadApp(
+    async () => response({ ok: true, diagnostics: [] }),
+    [["rune-editor-theme", "light"]],
+  );
+
+  assert.equal(
+    app.elements.get("editor-frame").dataset.editorTheme,
+    "classic-light",
+  );
+  assert.equal(app.storedValues.get("rune-editor-theme"), "classic-light");
+});
+
+test("the provisional violet theme name migrates to ultraviolet", () => {
+  const app = loadApp(
+    async () => response({ ok: true, diagnostics: [] }),
+    [["rune-editor-theme", "violet-dark"]],
+  );
+
+  assert.equal(
+    app.elements.get("editor-frame").dataset.editorTheme,
+    "ultraviolet",
+  );
+  assert.equal(app.storedValues.get("rune-editor-theme"), "ultraviolet");
+});
+
+test("page and editor themes are independent and remembered", () => {
+  const app = loadApp(
+    async () => response({ ok: true, diagnostics: [] }),
+    [
+      ["rune-editor-theme", "classic-light"],
+      ["rune-page-theme", "dark"],
+    ],
+  );
+  const frame = app.elements.get("editor-frame");
+  const editorTheme = app.elements.get("editor-theme");
+  const pageTheme = app.elements.get("page-theme");
+
+  assert.equal(app.context.document.documentElement.dataset.pageTheme, "dark");
+  assert.equal(frame.dataset.editorTheme, "classic-light");
+
+  editorTheme.value = "cool-light";
+  editorTheme.dispatch("change");
+
+  assert.equal(app.context.document.documentElement.dataset.pageTheme, "dark");
+  assert.equal(frame.dataset.editorTheme, "cool-light");
+  assert.equal(app.storedValues.get("rune-editor-theme"), "cool-light");
+
+  pageTheme.value = "light";
+  pageTheme.dispatch("change");
+
+  assert.equal(app.context.document.documentElement.dataset.pageTheme, "light");
+  assert.equal(frame.dataset.editorTheme, "cool-light");
+  assert.equal(app.storedValues.get("rune-page-theme"), "light");
+});
+
+test("page theme defaults to the live system preference", () => {
+  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
+
+  assert.equal(
+    app.context.document.documentElement.dataset.pageTheme,
+    "system",
+  );
+  assert.equal(app.elements.get("page-theme").value, "system");
 });
 
 test("the selected example stays visible until its source is edited", async () => {

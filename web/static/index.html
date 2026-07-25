@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-page-theme="system">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,12 +21,22 @@
         A small integer language with a flexible relationship to truth.
       </p>
     </div>
-    <a
-      class="repo-link"
-      href="https://github.com/tjreigh/RUNE"
-      target="_blank"
-      rel="noreferrer"
-    >Source code ↗</a>
+    <div class="header-actions">
+      <label class="page-theme-field">
+        <span>Page</span>
+        <select id="page-theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <a
+        class="repo-link"
+        href="https://github.com/tjreigh/RUNE"
+        target="_blank"
+        rel="noreferrer"
+      >Source code ↗</a>
+    </div>
   </header>
 
   <section class="workspace" aria-labelledby="editor-heading">
@@ -58,17 +68,23 @@
           </select>
         </label>
         <label class="toolbar-field">
-          <span>Theme</span>
+          <span>Editor</span>
           <select id="editor-theme">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
+            <option value="classic-dark">Classic Dark</option>
+            <option value="ultraviolet">Ultraviolet</option>
+            <option value="classic-light">Classic Light</option>
+            <option value="cool-light">Cool Light</option>
           </select>
         </label>
       </div>
       <span class="keyboard-hint"><kbd>⌘</kbd><kbd>Enter</kbd> to run</span>
     </div>
 
-    <div id="editor-frame" class="editor-frame" data-editor-theme="dark">
+    <div
+      id="editor-frame"
+      class="editor-frame"
+      data-editor-theme="classic-dark"
+    >
       <pre
         id="highlighting"
         class="editor-highlighting"

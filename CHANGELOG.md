@@ -9,7 +9,7 @@ Added:
 
 - `#` single-line comments.
 - Parser-aware multiline terminal input.
-- Light and dark syntax highlighting.
+- A saved system/light/dark page theme and four independent editor palettes.
 - A shared example gallery and in-page language guide.
 - CI for Python 3.12, 3.13, and 3.14.
 - A versioned language reference.

@@ -35,9 +35,25 @@ const MULTI_CHARACTER_OPERATORS = [
   "!=",
 ];
 
+const EDITOR_THEMES = new Set([
+  "classic-dark",
+  "ultraviolet",
+  "classic-light",
+  "cool-light",
+]);
+
+const LEGACY_EDITOR_THEMES = {
+  dark: "classic-dark",
+  light: "classic-light",
+  "violet-dark": "ultraviolet",
+};
+
+const PAGE_THEMES = new Set(["system", "light", "dark"]);
+
 const sourceEl = document.getElementById("source");
 const editorFrameEl = document.getElementById("editor-frame");
 const editorThemeEl = document.getElementById("editor-theme");
+const pageThemeEl = document.getElementById("page-theme");
 const highlightingEl = document.getElementById("highlighting");
 const highlightingContentEl = document.getElementById("highlighting-content");
 const sourcePositionEl = document.getElementById("source-position");
@@ -66,7 +82,10 @@ let exampleRequestSeq = 0;
 let exampleController = null;
 
 function applyEditorTheme(theme) {
-  const selectedTheme = theme === "light" ? "light" : "dark";
+  const migratedTheme = LEGACY_EDITOR_THEMES[theme] ?? theme;
+  const selectedTheme = EDITOR_THEMES.has(migratedTheme)
+    ? migratedTheme
+    : "classic-dark";
   editorFrameEl.dataset.editorTheme = selectedTheme;
   editorThemeEl.value = selectedTheme;
 
@@ -77,16 +96,40 @@ function applyEditorTheme(theme) {
   }
 }
 
+function applyPageTheme(theme) {
+  const selectedTheme = PAGE_THEMES.has(theme) ? theme : "system";
+  document.documentElement.dataset.pageTheme = selectedTheme;
+  pageThemeEl.value = selectedTheme;
+
+  try {
+    localStorage.setItem("rune-page-theme", selectedTheme);
+  } catch (_) {
+    // A private or restricted browser may not expose local storage.
+  }
+}
+
 function initialEditorTheme() {
   try {
-    return localStorage.getItem("rune-editor-theme") ?? "dark";
+    return localStorage.getItem("rune-editor-theme") ?? "classic-dark";
   } catch (_) {
-    return "dark";
+    return "classic-dark";
+  }
+}
+
+function initialPageTheme() {
+  try {
+    return localStorage.getItem("rune-page-theme") ?? "system";
+  } catch (_) {
+    return "system";
   }
 }
 
 editorThemeEl.addEventListener("change", () => {
   applyEditorTheme(editorThemeEl.value);
+});
+
+pageThemeEl.addEventListener("change", () => {
+  applyPageTheme(pageThemeEl.value);
 });
 
 function escapeHtml(text) {
@@ -662,5 +705,6 @@ runBtn.addEventListener("click", async () => {
 updateEditorHighlighting();
 updateSourcePosition();
 applyEditorTheme(initialEditorTheme());
+applyPageTheme(initialPageTheme());
 
 scheduleValidation();
