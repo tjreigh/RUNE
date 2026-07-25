@@ -71,23 +71,23 @@ Integer literals may be decimal or use binary, octal, and hexadecimal prefixes:
 ```
 
 Each expression above evaluates to `42`. Parentheses group expressions, `**`
-means power, and `^` means bitwise XOR. Precedence runs from low to high:
+means power, and `^` means bitwise XOR. Precedence runs from high to low:
 
 | Precedence | Operators |
 | --- | --- |
-| Lowest | `or` |
-|  | `and` |
-|  | `not` |
-|  | `<`, `>`, `<=`, `>=`, `==`, `!=` |
-|  | `\|` |
-|  | `^` |
-|  | `&` |
-|  | `<<`, `>>` |
-|  | `+`, `-` |
-|  | `*`, `/`, `%` |
-|  | Prefix `-`, `~` |
-|  | `**` |
 | Highest | Function calls, literals, variables, strings, and grouping |
+|  | `**` |
+|  | Prefix `-`, `~` |
+|  | `*`, `/`, `%` |
+|  | `+`, `-` |
+|  | `<<`, `>>` |
+|  | `&` |
+|  | `^` |
+|  | `\|` |
+|  | `<`, `>`, `<=`, `>=`, `==`, `!=` |
+|  | `not` |
+|  | `and` |
+| Lowest | `or` |
 
 Binary operators are left-associative except for right-associative power. Power
 binds tighter than unary minus, so `-2 ** 2` is `-4`, while `(-2) ** 2` is `4`.
@@ -137,6 +137,17 @@ Variables persist between successful inputs in the terminal REPL and within an
 expiring browser session in the web REPL. A failed, timed-out, or rejected
 evaluation does not commit partial variable or chaos changes. Reset discards the
 web session.
+
+### Comments
+
+`#` begins a line comment. Everything after it is ignored through the end of
+the line, while `#` inside a string remains part of that string:
+
+```rune
+# Strings become integers when evaluated.
+animal = "cat"  # 99 + 97 + 116
+"#"             # the code point value 35
+```
 
 ### Loops
 

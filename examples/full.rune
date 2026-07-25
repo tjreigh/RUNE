@@ -1,12 +1,19 @@
+# Variables persist in the current session.
 answer = 40
 answer = answer + 2
 answer
+
+# Expressions and integer literal formats.
 0b101010
 (2 + 3) ** 2
 -17 / 5
 -17 % 5
 (0b1010 << 2 | 0b0011) ^ 1
+
+# Strings collapse to Unicode code-point sums.
 "dog" + "cat"
+
+# Logic and conditionals use the active chaos threshold.
 @chaos 1
 0 and missing
 5 or missing
@@ -23,6 +30,7 @@ elif (2)
 else
   0
 end if
+
 @chaos 10
 5 or 20
 if (5 or 20)
@@ -30,6 +38,8 @@ if (5 or 20)
 else
   0
 end if
+
+# while and for loops remain bounded by the runtime limits.
 @chaos 3
 count = 5
 while (count)
@@ -49,6 +59,8 @@ for i from 1 to 5
   end if
   i
 end for
+
+# Functions use local scope and may recurse.
 function factorial(n)
   if (n <= 1)
     return 1

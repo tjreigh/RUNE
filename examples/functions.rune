@@ -1,3 +1,4 @@
+# Function declarations are hoisted within this source file.
 function factorial(n)
   if (n <= 1)
     return 1

@@ -79,7 +79,7 @@ def test_validation_keeps_empty_source_neutral(source):
 @pytest.mark.parametrize(
     ("source", "kind", "line", "column"),
     [
-        ("#", "lex", 1, 1),
+        ("$", "lex", 1, 1),
         ("\N{NO-BREAK SPACE}", "lex", 1, 1),
         ("if (1)\n1\n", "parse", 3, 1),
     ],
@@ -280,7 +280,7 @@ def test_normal_evaluation():
 
 def test_lex_error_returns_200_with_diagnostic():
     client = TestClient(create_app())
-    response = client.post("/evaluate", json={"source": "#"})
+    response = client.post("/evaluate", json={"source": "$"})
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is False

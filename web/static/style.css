@@ -284,6 +284,11 @@ kbd {
   color: var(--editor-text);
 }
 
+.tok-comment {
+  color: #918a96;
+  font-style: italic;
+}
+
 .editor-frame[data-editor-theme="light"] {
   background: #f8f6f1;
 }
@@ -331,6 +336,10 @@ kbd {
 
 .editor-frame[data-editor-theme="light"] .tok-identifier {
   color: #29252d;
+}
+
+.editor-frame[data-editor-theme="light"] .tok-comment {
+  color: #716a76;
 }
 
 .editor-footer {

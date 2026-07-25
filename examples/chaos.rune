@@ -1,5 +1,7 @@
+# Strings participate in arithmetic as code-point sums.
 "dog" + "cat"
 
+# Comparisons return 1 or 0; chaos decides whether that is truthy.
 @chaos 1
 if ("dog" > "cat")
   1

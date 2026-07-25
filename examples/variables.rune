@@ -1,3 +1,4 @@
+# Strings collapse to Unicode code-point sums before storage.
 animal = "cat"
 score = animal + 1
 score

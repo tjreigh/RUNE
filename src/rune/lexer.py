@@ -70,6 +70,13 @@ class Lexer:
                 self.advance()
                 continue
 
+            # Leave the newline after a comment for the normal statement
+            # separator path so comments cannot join adjacent statements.
+            if self.text[self.pos] == '#':
+                while self.pos < len(self.text) and self.text[self.pos] != '\n':
+                    self.advance()
+                continue
+
             # Newlines (statement separators)
             if self.text[self.pos] == '\n':
                 self.advance()

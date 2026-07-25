@@ -296,6 +296,33 @@ def test_single_equals_is_assignment_token():
     assert token.span == SourceSpan(Position(1, 1), Position(1, 2))
 
 
+def test_line_comments_are_ignored_without_consuming_newlines():
+    tokens = _tokenize("1 # first value\n  # whole line\n2 # final value")
+
+    assert [token.type for token in tokens] == [
+        TokenType.NUMBER,
+        TokenType.NEWLINE,
+        TokenType.NEWLINE,
+        TokenType.NUMBER,
+        TokenType.EOF,
+    ]
+    assert [token.value for token in tokens if token.type == TokenType.NUMBER] == [
+        1,
+        2,
+    ]
+    assert tokens[-1].span == SourceSpan.at(Position(3, 16))
+
+
+def test_hash_inside_string_is_not_a_comment():
+    tokens = _tokenize('"#" # actual comment')
+
+    assert [token.type for token in tokens] == [
+        TokenType.STRING,
+        TokenType.EOF,
+    ]
+    assert tokens[0].value == "#"
+
+
 def test_lone_bang_raises_lex_error():
     with pytest.raises(RuneLexError):
         _tokenize("1 ! 2")
@@ -303,7 +330,7 @@ def test_lone_bang_raises_lex_error():
 
 def test_unknown_character_raises_lex_error():
     with pytest.raises(RuneLexError) as exc_info:
-        _tokenize("#")
+        _tokenize("$")
     assert exc_info.value.diagnostic.span == SourceSpan(
         Position(1, 1), Position(1, 2)
     )

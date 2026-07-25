@@ -1,5 +1,10 @@
+# Binary, octal, and hexadecimal literals are ordinary integers.
 0b101010
+
+# Power binds tighter than unary minus.
 (2 + 3) ** 2
 -17 / 5
 -17 % 5
+
+# Bitwise operators use infinite two's-complement semantics.
 (0b1010 << 2 | 0b0011) ^ 1

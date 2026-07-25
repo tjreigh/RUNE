@@ -120,6 +120,15 @@ function highlightRune(source) {
       continue;
     }
 
+    if (character === "#") {
+      const newline = source.indexOf("\n", offset);
+      const end = newline === -1 ? source.length : newline;
+      markup += highlightedToken("comment", source.slice(offset, end));
+      offset = end;
+      expectsFunctionName = false;
+      continue;
+    }
+
     if (character === '"') {
       const closingQuote = source.indexOf('"', offset + 1);
       const end = closingQuote === -1 ? source.length : closingQuote + 1;

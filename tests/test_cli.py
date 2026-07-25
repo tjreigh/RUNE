@@ -48,7 +48,7 @@ def test_run_file_accepts_trusted_unbounded_policy(tmp_path, capsys):
 
 
 def test_run_code_lex_error_reports_to_stderr(capsys):
-    rc = rune.run_code("#")
+    rc = rune.run_code("$")
 
     assert rc == 1
     err = capsys.readouterr().err
@@ -85,7 +85,7 @@ def test_run_code_interrupt_exits_cleanly_without_traceback(monkeypatch, capsys)
 
 
 def test_repl_handles_errors_and_exits(monkeypatch, capsys):
-    inputs = iter(["2+2", "#"])
+    inputs = iter(["2+2", "$"])
 
     def fake_input(prompt=""):
         try:
@@ -156,7 +156,7 @@ def test_repl_state_survives_failed_evaluation_unchanged(monkeypatch, capsys):
         monkeypatch,
         [
             "@chaos 500",
-            "#",
+            "$",
             'if ("dog" > "cat")\n1\nelse\n0\nend if',
         ],
     )

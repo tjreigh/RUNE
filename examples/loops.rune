@@ -1,3 +1,4 @@
+# This loop stops when count falls below the chaos threshold.
 @chaos 3
 count = 5
 while (count)
@@ -5,11 +6,13 @@ while (count)
   count = count - 1
 end while
 
+# Counted loops include both endpoints.
 @chaos 1
 for i from 1 to 5 step 2
   i
 end for
 
+# break and continue target the nearest loop.
 for i from 1 to 5
   if (i == 2)
     continue

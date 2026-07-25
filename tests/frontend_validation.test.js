@@ -163,7 +163,7 @@ test("clicking a Unicode diagnostic selects its source span", async () => {
     ok: false,
     diagnostics: [{
       kind: "lex",
-      message: "Unknown character '#'",
+      message: "Unknown character '$'",
       span: {
         start: { line: 1, column: 4 },
         end: { line: 1, column: 5 },
@@ -173,7 +173,7 @@ test("clicking a Unicode diagnostic selects its source span", async () => {
   const source = app.elements.get("source");
   const status = app.elements.get("validation-status");
 
-  source.value = '"😀"#';
+  source.value = '"😀"$';
   source.dispatch("input");
   await waitForDebounce();
   await flushAsync();
@@ -187,10 +187,11 @@ test("clicking a Unicode diagnostic selects its source span", async () => {
 test("RUNE highlighting recognizes language tokens and escapes source", () => {
   const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
   const markup = vm.runInContext(
-    'highlightRune(\'@chaos 5\\nfunction add(x)\\nreturn x + "<tag>"\\nend function\')',
+    'highlightRune(\'# <note>\\n@chaos 5\\nfunction add(x)\\nreturn x + "<tag>"\\nend function\')',
     app.context,
   );
 
+  assert.match(markup, /class="tok-comment"># &lt;note&gt;<\/span>/);
   assert.match(markup, /class="tok-directive">@<\/span>/);
   assert.match(markup, /class="tok-directive">chaos<\/span>/);
   assert.match(markup, /class="tok-number">5<\/span>/);

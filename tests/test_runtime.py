@@ -26,6 +26,18 @@ def test_multiple_outputs():
     assert result.values == [1, 2, 3]
 
 
+def test_line_comments_do_not_change_evaluation():
+    result = evaluate(
+        "# establish state\n"
+        "answer = 40  # assignment emits no value\n"
+        "answer + 2   # this one does"
+    )
+
+    assert result.ok
+    assert result.values == [42]
+    assert result.state.variables == {"answer": 40}
+
+
 def test_prefixed_integer_literals_are_ordinary_runtime_integers():
     result = evaluate("mask = 0b11110000\nmask + 0o10 + 0x10")
 
@@ -218,7 +230,7 @@ def test_supplied_state_affects_later_conditionals():
 
 
 def test_lex_failure_becomes_diagnostic():
-    result = evaluate("#")
+    result = evaluate("$")
     assert not result.ok
     assert result.diagnostics[0].kind == DiagnosticKind.LEX
 
@@ -239,7 +251,7 @@ def test_parse_failure_becomes_diagnostic():
 
 def test_failed_evaluation_preserves_input_state():
     state = RuntimeState(chaos_threshold=42)
-    result = evaluate("#", state)
+    result = evaluate("$", state)
     assert result.state is state
 
 
@@ -287,7 +299,7 @@ def test_variable_state_serializes_to_json():
 
 
 def test_diagnostic_result_serializes_to_json():
-    result = evaluate("#")
+    result = evaluate("$")
     assert json.dumps(result.to_dict())
 
 
