@@ -7,6 +7,7 @@ from .ast_nodes import (
     LogicalOpNode,
     LogicalNotNode,
     ChaosPragmaNode,
+    ChaosBlockNode,
     VariableNode,
     AssignmentNode,
     GroupNode,
@@ -21,7 +22,9 @@ from .ast_nodes import (
     ReturnNode,
     ProgramNode,
 )
-from .diagnostics import RuneInternalError, RuneLimitError, RuneRuntimeError
+import sys
+
+from .diagnostics import RuneError, RuneInternalError, RuneLimitError, RuneRuntimeError
 from .runtime_state import RuntimeState, RuntimeEvent
 from .limits import ExecutionLimits, ExecutionStats
 from .bindings import BindingEnvironment
@@ -268,6 +271,8 @@ class Interpreter:
                 return self.visit_logical_not(node)
             elif isinstance(node, ChaosPragmaNode):
                 return self.visit_chaos_pragma(node)
+            elif isinstance(node, ChaosBlockNode):
+                return self.visit_chaos_block(node)
             elif isinstance(node, VariableNode):
                 return self.visit_variable(node)
             elif isinstance(node, AssignmentNode):
@@ -435,6 +440,53 @@ class Interpreter:
         )
         # Pragmas don't produce a value
         return None
+
+    def visit_chaos_block(self, node):
+        """Execute a block under a temporary, dynamically visible threshold."""
+        threshold = self._check_integer(self.visit(node.threshold), node.threshold.span)
+        if threshold < 0:
+            raise RuneRuntimeError(
+                "Chaos threshold must be a non-negative integer",
+                node.threshold.span,
+            )
+
+        previous = self.state.chaos_threshold
+        self.state = self.state.with_chaos_threshold(threshold)
+        try:
+            self._record_event(
+                RuntimeEvent(
+                    kind="chaos_scope_entered",
+                    data={
+                        "previous_threshold": previous,
+                        "threshold": threshold,
+                    },
+                    span=node.header_span or node.span,
+                )
+            )
+            return self._exec_block(node.body)
+        finally:
+            pending_error = sys.exc_info()[1]
+            # Restore first so even a secondary event-budget failure cannot
+            # leak the temporary threshold into the interpreter's working state.
+            active = self.state.chaos_threshold
+            self.state = self.state.with_chaos_threshold(previous)
+            try:
+                self._record_event(
+                    RuntimeEvent(
+                        kind="chaos_scope_restored",
+                        data={
+                            "previous_threshold": active,
+                            "threshold": previous,
+                        },
+                        span=node.end_span or node.span,
+                    )
+                )
+            except RuneLimitError:
+                # Preserve an already-active language failure. Successful and
+                # non-local control-flow exits still remain subject to the
+                # ordinary event budget.
+                if not isinstance(pending_error, RuneError):
+                    raise
 
     def visit_variable(self, node):
         """Look up an already-collapsed numeric variable value."""

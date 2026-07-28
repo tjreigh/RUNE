@@ -7,6 +7,7 @@ from .ast_nodes import (
     LogicalOpNode,
     LogicalNotNode,
     ChaosPragmaNode,
+    ChaosBlockNode,
     VariableNode,
     AssignmentNode,
     GroupNode,
@@ -213,6 +214,8 @@ class Parser:
         """Parse a pragma, conditional, or expression statement."""
         if self.current_token().type == TokenType.PRAGMA:
             return self.pragma()
+        elif self.current_token().type == TokenType.CHAOS:
+            return self.chaos_stmt()
         elif self.current_token().type == TokenType.IF:
             return self.if_stmt()
         elif self.current_token().type == TokenType.WHILE:
@@ -328,6 +331,24 @@ class Parser:
         return ChaosPragmaNode(
             threshold_token.value,
             span=SourceSpan(start, threshold_token.span.end),
+        )
+
+    def chaos_stmt(self):
+        """Parse a dynamically scoped ``chaos expression`` block."""
+        chaos_token = self.current_token()
+        self.eat(TokenType.CHAOS)
+        threshold = self.expr()
+        header_span = SourceSpan(chaos_token.span.start, threshold.span.end)
+        body = self.parse_nested_block({TokenType.END}, chaos_token)
+        end_token = self.current_token()
+        end_label = self.block_end(TokenType.CHAOS)
+        end_span = SourceSpan(end_token.span.start, end_label.span.end)
+        return ChaosBlockNode(
+            threshold,
+            body,
+            header_span=header_span,
+            end_span=end_span,
+            span=SourceSpan(chaos_token.span.start, end_label.span.end),
         )
 
     def if_stmt(self):

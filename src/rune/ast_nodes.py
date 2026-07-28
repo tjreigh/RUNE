@@ -126,6 +126,27 @@ class ChaosPragmaNode(SpannedNode):
         return f"ChaosPragma({self.threshold})"
 
 
+class ChaosBlockNode(SpannedNode):
+    """Temporarily changes the active chaos threshold for one lexical block."""
+
+    def __init__(
+        self,
+        threshold,
+        body,
+        header_span=None,
+        end_span=None,
+        span=None,
+    ):
+        self.threshold = threshold
+        self.body = body
+        self.header_span = header_span
+        self.end_span = end_span
+        self._set_span(span)
+
+    def __repr__(self):
+        return f"ChaosBlock({self.threshold}, body={self.body})"
+
+
 class IfNode(SpannedNode):
     """Represents an if/elif/else conditional."""
     def __init__(
