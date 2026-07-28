@@ -270,7 +270,8 @@ kbd {
 }
 
 #source,
-.editor-highlighting {
+.editor-highlighting,
+.editor-trace-highlighting {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -292,18 +293,34 @@ kbd {
 }
 
 .editor-highlighting {
-  z-index: 0;
+  z-index: 1;
   color: var(--editor-text);
-  background: var(--editor);
+  background: transparent;
   pointer-events: none;
 }
 
-.editor-highlighting code {
+.editor-highlighting code,
+.editor-trace-highlighting code {
   font: inherit;
 }
 
+.editor-trace-highlighting {
+  z-index: 0;
+  color: transparent;
+  background: transparent;
+  pointer-events: none;
+}
+
+.trace-active-source {
+  border-bottom: 2px solid #c8b5ff;
+  color: transparent;
+  background: rgb(114 85 184 / 38%);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 #source {
-  z-index: 1;
+  z-index: 2;
   resize: none;
   outline: none;
   color: transparent;
@@ -361,7 +378,7 @@ kbd {
 
 .editor-frame[data-editor-theme="classic-light"] .editor-highlighting {
   color: #29252d;
-  background: #f8f6f1;
+  background: transparent;
 }
 
 .editor-frame[data-editor-theme="classic-light"] #source {
@@ -370,6 +387,11 @@ kbd {
 
 .editor-frame[data-editor-theme="classic-light"] #source::selection {
   background: rgb(114 85 184 / 22%);
+}
+
+.editor-frame[data-editor-theme="classic-light"] .trace-active-source {
+  border-bottom-color: #593b9c;
+  background: rgb(114 85 184 / 24%);
 }
 
 .editor-frame[data-editor-theme="classic-light"] .tok-keyword {
@@ -414,7 +436,7 @@ kbd {
 
 .editor-frame[data-editor-theme="ultraviolet"] .editor-highlighting {
   color: #fff4ff;
-  background: #30194d;
+  background: transparent;
 }
 
 .editor-frame[data-editor-theme="ultraviolet"] #source {
@@ -423,6 +445,11 @@ kbd {
 
 .editor-frame[data-editor-theme="ultraviolet"] #source::selection {
   background: rgb(224 114 255 / 32%);
+}
+
+.editor-frame[data-editor-theme="ultraviolet"] .trace-active-source {
+  border-bottom-color: #ffd166;
+  background: rgb(224 114 255 / 35%);
 }
 
 .editor-frame[data-editor-theme="ultraviolet"] .tok-keyword {
@@ -467,7 +494,7 @@ kbd {
 
 .editor-frame[data-editor-theme="cool-light"] .editor-highlighting {
   color: #18313b;
-  background: #e6f3f7;
+  background: transparent;
 }
 
 .editor-frame[data-editor-theme="cool-light"] #source {
@@ -475,6 +502,11 @@ kbd {
 }
 
 .editor-frame[data-editor-theme="cool-light"] #source::selection {
+  background: rgb(0 119 182 / 20%);
+}
+
+.editor-frame[data-editor-theme="cool-light"] .trace-active-source {
+  border-bottom-color: #005f73;
   background: rgb(0 119 182 / 20%);
 }
 
@@ -606,6 +638,7 @@ kbd {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.65rem;
   padding: 0.9rem 0 1.4rem;
 }
@@ -616,8 +649,13 @@ button {
 }
 
 button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.45;
+}
+
+#run:disabled,
+#debug:disabled {
+  cursor: wait;
 }
 
 .primary-action,
@@ -655,6 +693,67 @@ button:disabled {
 }
 
 .secondary-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.debugger {
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed color-mix(in srgb, var(--ink) 55%, transparent);
+  border-bottom: 0;
+  background: color-mix(in srgb, var(--accent-light) 35%, transparent);
+}
+
+.debugger-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.debugger-heading h4,
+.debug-status {
+  margin: 0;
+}
+
+.debugger-heading h4 {
+  font-size: 0.7rem;
+}
+
+.debug-status {
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-align: right;
+}
+
+.debug-status[data-state="paused"] {
+  color: var(--accent);
+}
+
+.debug-status[data-state="finished"] {
+  color: var(--success);
+}
+
+.debug-status[data-state="error"] {
+  color: var(--error);
+}
+
+.debug-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.debug-controls button {
+  min-height: 1.9rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--ink);
+  background: transparent;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.debug-controls button:hover:not(:disabled) {
   background: var(--surface-hover);
 }
 
@@ -1009,6 +1108,16 @@ select:focus-visible,
     gap: 0.5rem;
   }
 
+  .debugger-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .debug-status {
+    text-align: left;
+  }
+
   .editor-toolbar {
     padding: 0.45rem;
   }
@@ -1035,7 +1144,8 @@ select:focus-visible,
   }
 
   #source,
-  .editor-highlighting {
+  .editor-highlighting,
+  .editor-trace-highlighting {
     padding: 0.8rem;
     font-size: 0.78rem;
   }

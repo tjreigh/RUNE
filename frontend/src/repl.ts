@@ -1,10 +1,18 @@
-import { highlightRune, sourceOffsetAtPosition } from "./editor.js";
+import {
+  highlightActiveTraceSpan,
+  highlightRune,
+  scrollTopToRevealLine,
+  sourceOffsetAtPosition,
+} from "./editor.js";
 import {
   formatDiagnostic,
   formatEvent,
   formatRequestDetail,
   formatState,
   formatStats,
+  formatTraceContext,
+  formatTraceState,
+  formatTraceStats,
 } from "./formatters.js";
 import type {
   Diagnostic,
@@ -13,6 +21,11 @@ import type {
   RuntimeState,
   SourceSpan,
 } from "./formatters.js";
+import { TracePlayback } from "./trace-player.js";
+import type {
+  TracePlaybackSnapshot,
+  TraceResult,
+} from "./trace-player.js";
 
 interface ValidationResult {
   ok: boolean;
@@ -33,6 +46,11 @@ interface EvaluateRequest {
   source: string;
   session_id?: string;
 }
+
+type DebuggerState = (
+  "idle" | "loading" | "paused" | "finished" | "error"
+);
+type RequestKind = "evaluate" | "debug";
 
 interface RuneReplDependencies {
   document: Document;
@@ -104,11 +122,32 @@ export function startRuneRepl({
     document,
     "highlighting-content",
   );
+  const traceHighlightingEl = requiredElement(document, "trace-highlighting");
+  const traceHighlightingContentEl = requiredElement(
+    document,
+    "trace-highlighting-content",
+  );
   const sourcePositionEl = requiredElement(document, "source-position");
   const validationStatusEl = requiredElement(document, "validation-status");
   const outputEl = requiredElement(document, "output");
   const runBtn = requiredElement(document, "run") as HTMLButtonElement;
+  const debugBtn = requiredElement(document, "debug") as HTMLButtonElement;
   const resetBtn = requiredElement(document, "reset") as HTMLButtonElement;
+  const stepBackBtn = requiredElement(
+    document,
+    "step-back",
+  ) as HTMLButtonElement;
+  const stepBtn = requiredElement(document, "step") as HTMLButtonElement;
+  const stepOverBtn = requiredElement(
+    document,
+    "step-over",
+  ) as HTMLButtonElement;
+  const stepOutBtn = requiredElement(
+    document,
+    "step-out",
+  ) as HTMLButtonElement;
+  const stopBtn = requiredElement(document, "stop") as HTMLButtonElement;
+  const debugStatusEl = requiredElement(document, "debug-status");
   const examplesEl = requiredElement(
     document,
     "examples",
@@ -117,6 +156,7 @@ export function startRuneRepl({
   const inspectorStateEl = requiredElement(document, "inspector-state");
   const inspectorEventsEl = requiredElement(document, "inspector-events");
   const inspectorStatsEl = requiredElement(document, "inspector-stats");
+  const inspectorContextEl = requiredElement(document, "inspector-context");
   const inspectorTabs = (
     Array.from(document.querySelectorAll(".inspector-tab"))
   ) as HTMLButtonElement[];
@@ -125,9 +165,15 @@ export function startRuneRepl({
   let heldState: RuntimeState | null = null;
   let heldEvents: RuntimeEvent[] = [];
   let heldStats: ExecutionStats | null = null;
+  let heldOutputText = "";
+  let heldOutputIsError = false;
   let hasEvaluation = false;
+  let debuggerState: DebuggerState = "idle";
+  let tracePlayback: TracePlayback | null = null;
   let requestSeq = 0; // Prevent stale responses from overwriting newer state.
   let activeController: AbortController | null = null;
+  let requestInFlight = false;
+  let activeRequestKind: RequestKind | null = null;
   let validationRequestSeq = 0;
   let validationController: AbortController | null = null;
   let validationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -187,11 +233,42 @@ export function startRuneRepl({
 
   function updateEditorHighlighting(): void {
     highlightingContentEl.innerHTML = highlightRune(sourceEl.value);
+    if (tracePlayback === null) {
+      traceHighlightingContentEl.innerHTML = highlightActiveTraceSpan(
+        sourceEl.value,
+        null,
+      );
+    }
   }
 
   function syncEditorScroll(): void {
     highlightingEl.scrollTop = sourceEl.scrollTop;
     highlightingEl.scrollLeft = sourceEl.scrollLeft;
+    traceHighlightingEl.scrollTop = sourceEl.scrollTop;
+    traceHighlightingEl.scrollLeft = sourceEl.scrollLeft;
+  }
+
+  function revealTraceLine(span: SourceSpan | null): void {
+    if (span === null) {
+      return;
+    }
+    const computedStyle = document.defaultView?.getComputedStyle(sourceEl);
+    if (computedStyle === undefined) {
+      return;
+    }
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight);
+    const paddingTop = Number.parseFloat(computedStyle.paddingTop);
+    if (!Number.isFinite(lineHeight) || !Number.isFinite(paddingTop)) {
+      return;
+    }
+    sourceEl.scrollTop = scrollTopToRevealLine({
+      line: span.start.line,
+      scrollTop: sourceEl.scrollTop,
+      viewportHeight: sourceEl.clientHeight,
+      lineHeight,
+      paddingTop,
+    });
+    syncEditorScroll();
   }
 
   function updateSourcePosition(): void {
@@ -234,10 +311,12 @@ export function startRuneRepl({
         return;
       }
 
-      sourceEl.value = await response.text();
+      const exampleSource = await response.text();
       if (mySeq !== exampleRequestSeq) {
         return;
       }
+      supersedeDebugWork("Trace stopped because the source changed.");
+      sourceEl.value = exampleSource;
       updateEditorHighlighting();
       syncEditorScroll();
       updateSourcePosition();
@@ -386,6 +465,7 @@ export function startRuneRepl({
   }
 
   sourceEl.addEventListener("input", () => {
+    supersedeDebugWork("Trace stopped because the source changed.");
     ++exampleRequestSeq;
     if (exampleController !== null) {
       exampleController.abort();
@@ -418,6 +498,160 @@ export function startRuneRepl({
       ? "No runtime events."
       : heldEvents.map(formatEvent).join("\n");
     inspectorStatsEl.textContent = formatStats(heldStats, hasEvaluation);
+    inspectorContextEl.textContent = "No trace loaded.";
+  }
+
+  function updateControlAvailability(): void {
+    runBtn.disabled = requestInFlight;
+    debugBtn.disabled = requestInFlight;
+    stepBackBtn.disabled = tracePlayback === null || !tracePlayback.canStepBack;
+    stepBtn.disabled = tracePlayback === null || !tracePlayback.canStepForward;
+    stepOverBtn.disabled = stepBtn.disabled;
+    stepOutBtn.disabled = tracePlayback === null || !tracePlayback.canStepOut;
+    stopBtn.disabled = debuggerState === "idle";
+  }
+
+  function setDebuggerStatus(state: DebuggerState, text: string): void {
+    debuggerState = state;
+    debugStatusEl.dataset.state = state;
+    debugStatusEl.textContent = text;
+    updateControlAvailability();
+  }
+
+  function restoreCommittedPresentation(message = "Debugger idle."): void {
+    tracePlayback = null;
+    traceHighlightingContentEl.innerHTML = highlightActiveTraceSpan(
+      sourceEl.value,
+      null,
+    );
+    updateChaosDisplay();
+    renderInspector();
+    renderOutput(heldOutputText, heldOutputIsError);
+    setDebuggerStatus("idle", message);
+  }
+
+  function traceStateForFrame(
+    snapshot: TracePlaybackSnapshot,
+  ): DebuggerState {
+    if (snapshot.frame.status === "completed") {
+      return "finished";
+    }
+    if (snapshot.frame.status === "error") {
+      return "error";
+    }
+    return "paused";
+  }
+
+  function traceStatusText(snapshot: TracePlaybackSnapshot): string {
+    const framePosition = `frame ${snapshot.frameIndex + 1} of ${
+      snapshot.frameCount
+    }`;
+    if (snapshot.frame.status === "completed") {
+      return `Trace finished at ${framePosition}.`;
+    }
+    if (snapshot.frame.status === "error") {
+      return `Trace stopped with an error at ${framePosition}.`;
+    }
+    const line = snapshot.frame.active?.span.start.line;
+    return line === undefined
+      ? `Paused at ${framePosition}.`
+      : `Paused at line ${line}, ${framePosition}.`;
+  }
+
+  function renderTraceSnapshot(): void {
+    const snapshot = tracePlayback?.current;
+    if (snapshot === null || snapshot === undefined) {
+      return;
+    }
+
+    traceHighlightingContentEl.innerHTML = highlightActiveTraceSpan(
+      sourceEl.value,
+      snapshot.frame.active?.span ?? null,
+    );
+    revealTraceLine(snapshot.frame.active?.span ?? null);
+    chaosLevelEl.textContent = String(snapshot.chaosThreshold);
+    inspectorStateEl.textContent = formatTraceState(snapshot);
+    if (snapshot.events.length === 0) {
+      inspectorEventsEl.textContent = "No runtime events through this frame.";
+    } else {
+      const renderedEvents = snapshot.events.map(formatEvent);
+      inspectorEventsEl.textContent = [
+        "Events through this frame:",
+        ...renderedEvents.map((event) => `  ${event}`),
+        "",
+        `Last event: ${renderedEvents.at(-1)}`,
+      ].join("\n");
+    }
+    inspectorStatsEl.textContent = formatTraceStats(snapshot.frame);
+    inspectorContextEl.textContent = formatTraceContext(snapshot);
+
+    const diagnostic = tracePlayback?.diagnosticForCurrentFrame() ?? null;
+    const outputLines = snapshot.outputValues.map(String);
+    if (diagnostic !== null) {
+      outputLines.push("", formatDiagnostic(diagnostic));
+    }
+    renderOutput(outputLines.join("\n"), diagnostic !== null);
+    setDebuggerStatus(
+      traceStateForFrame(snapshot),
+      traceStatusText(snapshot),
+    );
+  }
+
+  function renderUnavailableTrace(result: TraceResult): void {
+    tracePlayback = null;
+    traceHighlightingContentEl.innerHTML = highlightActiveTraceSpan(
+      sourceEl.value,
+      null,
+    );
+    updateChaosDisplay();
+    renderInspector();
+    const message = result.diagnostics.length === 0
+      ? "Trace artifact is unavailable."
+      : result.diagnostics.map(formatDiagnostic).join("\n");
+    renderOutput(message, true);
+    setDebuggerStatus("error", "Trace artifact is unavailable.");
+  }
+
+  function forgetCommittedSession(): void {
+    sessionId = null;
+    heldState = null;
+    heldEvents = [];
+    heldStats = null;
+    heldOutputText = "";
+    heldOutputIsError = false;
+    hasEvaluation = false;
+    updateChaosDisplay();
+    renderInspector();
+  }
+
+  function renderEmptyTrace(result: TraceResult): void {
+    tracePlayback = null;
+    traceHighlightingContentEl.innerHTML = highlightActiveTraceSpan(
+      sourceEl.value,
+      null,
+    );
+    updateChaosDisplay();
+    renderInspector();
+    const message = result.diagnostics.length === 0
+      ? "Trace contains no execution frames."
+      : result.diagnostics.map(formatDiagnostic).join("\n");
+    renderOutput(message, true);
+    setDebuggerStatus("error", "Trace could not begin.");
+  }
+
+  function supersedeDebugWork(debugMessage: string): void {
+    if (activeRequestKind === "debug" && activeController !== null) {
+      ++requestSeq;
+      activeController.abort();
+      activeController = null;
+      activeRequestKind = null;
+      requestInFlight = false;
+    }
+    if (debuggerState !== "idle" || tracePlayback !== null) {
+      restoreCommittedPresentation(debugMessage);
+    } else {
+      updateControlAvailability();
+    }
   }
 
   function activateInspectorTab(
@@ -462,22 +696,51 @@ export function startRuneRepl({
     });
   }
 
+  stepBackBtn.addEventListener("click", () => {
+    if (tracePlayback?.stepBack() === true) {
+      renderTraceSnapshot();
+    }
+  });
+
+  stepBtn.addEventListener("click", () => {
+    if (tracePlayback?.stepForward() === true) {
+      renderTraceSnapshot();
+    }
+  });
+
+  stepOverBtn.addEventListener("click", () => {
+    if (tracePlayback?.stepOver() === true) {
+      renderTraceSnapshot();
+    }
+  });
+
+  stepOutBtn.addEventListener("click", () => {
+    if (tracePlayback?.stepOut() === true) {
+      renderTraceSnapshot();
+    }
+  });
+
+  stopBtn.addEventListener("click", () => {
+    supersedeDebugWork("Trace stopped.");
+  });
+
   resetBtn.addEventListener("click", async () => {
     ++requestSeq;
     if (activeController !== null) {
       activeController.abort();
       activeController = null;
     }
+    activeRequestKind = null;
+    requestInFlight = false;
     const resetSessionId = sessionId;
     sessionId = null;
     heldState = null;
     heldEvents = [];
     heldStats = null;
+    heldOutputText = "";
+    heldOutputIsError = false;
     hasEvaluation = false;
-    updateChaosDisplay();
-    renderInspector();
-    runBtn.disabled = false;
-    renderOutput("");
+    restoreCommittedPresentation();
 
     if (resetSessionId !== null) {
       try {
@@ -494,10 +757,15 @@ export function startRuneRepl({
   });
 
   runBtn.addEventListener("click", async () => {
+    if (debuggerState !== "idle" || tracePlayback !== null) {
+      restoreCommittedPresentation();
+    }
     const mySeq = ++requestSeq;
     const controller = new AbortController();
     activeController = controller;
-    runBtn.disabled = true;
+    activeRequestKind = "evaluate";
+    requestInFlight = true;
+    updateControlAvailability();
 
     try {
       const payload: EvaluateRequest = { source: sourceEl.value };
@@ -532,14 +800,8 @@ export function startRuneRepl({
         } catch (_) {
           // The status text is the best fallback for a non-JSON error body.
         }
-        if (response.status === 404) {
-          sessionId = null;
-          heldState = null;
-          heldEvents = [];
-          heldStats = null;
-          hasEvaluation = false;
-          updateChaosDisplay();
-          renderInspector();
+        if (response.status === 404 || response.status === 409) {
+          forgetCommittedSession();
         }
         renderOutput(`Request rejected (${response.status}): ${detail}`, true);
         return;
@@ -554,14 +816,104 @@ export function startRuneRepl({
       updateChaosDisplay();
       renderInspector();
       if (result.ok) {
-        renderOutput(result.values.map(String).join("\n"));
+        heldOutputText = result.values.map(String).join("\n");
+        heldOutputIsError = false;
       } else {
-        renderOutput(result.diagnostics.map(formatDiagnostic).join("\n"), true);
+        heldOutputText = result.diagnostics.map(formatDiagnostic).join("\n");
+        heldOutputIsError = true;
       }
+      renderOutput(heldOutputText, heldOutputIsError);
     } finally {
       if (mySeq === requestSeq) {
         activeController = null;
-        runBtn.disabled = false;
+        activeRequestKind = null;
+        requestInFlight = false;
+        updateControlAvailability();
+      }
+    }
+  });
+
+  debugBtn.addEventListener("click", async () => {
+    if (debuggerState !== "idle" || tracePlayback !== null) {
+      restoreCommittedPresentation();
+    }
+    const mySeq = ++requestSeq;
+    const controller = new AbortController();
+    activeController = controller;
+    activeRequestKind = "debug";
+    requestInFlight = true;
+    setDebuggerStatus("loading", "Recording bounded trace…");
+
+    try {
+      const payload: EvaluateRequest = { source: sourceEl.value };
+      if (sessionId !== null) {
+        payload.session_id = sessionId;
+      }
+
+      let response;
+      try {
+        response = await fetch("/debug", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (networkError) {
+        if (!isAbortError(networkError) && mySeq === requestSeq) {
+          renderOutput(`Network error: ${networkError}`, true);
+          setDebuggerStatus("error", "Debug request failed.");
+        }
+        return;
+      }
+
+      if (mySeq !== requestSeq) {
+        return;
+      }
+
+      if (!response.ok) {
+        let detail = response.statusText;
+        try {
+          const body = await response.json() as { detail?: unknown };
+          detail = formatRequestDetail(body.detail ?? body);
+        } catch (_) {
+          // The status text is the best fallback for a non-JSON error body.
+        }
+        if (response.status === 404 || response.status === 409) {
+          forgetCommittedSession();
+        }
+        renderOutput(`Request rejected (${response.status}): ${detail}`, true);
+        setDebuggerStatus("error", `Debug request rejected (${response.status}).`);
+        return;
+      }
+
+      const result = await response.json() as TraceResult;
+      if (mySeq !== requestSeq) {
+        return;
+      }
+      sessionId = result.session_id;
+      if (!result.artifact_available || result.base_state === null) {
+        renderUnavailableTrace(result);
+        return;
+      }
+      if (result.frames.length === 0) {
+        renderEmptyTrace(result);
+        return;
+      }
+
+      try {
+        tracePlayback = new TracePlayback(result);
+      } catch (_) {
+        renderOutput("The server returned an invalid trace artifact.", true);
+        setDebuggerStatus("error", "Trace artifact is invalid.");
+        return;
+      }
+      renderTraceSnapshot();
+    } finally {
+      if (mySeq === requestSeq) {
+        activeController = null;
+        activeRequestKind = null;
+        requestInFlight = false;
+        updateControlAvailability();
       }
     }
   });
@@ -572,4 +924,5 @@ export function startRuneRepl({
   applyPageTheme(initialPageTheme());
 
   scheduleValidation();
+  setDebuggerStatus("idle", "Debugger idle.");
 }

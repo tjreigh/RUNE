@@ -34,6 +34,12 @@ function escapeHtml(text: string): string {
     .replaceAll(">", "&gt;");
 }
 
+function preserveTrailingNewline(source: string, markup: string): string {
+  // A trailing newline otherwise collapses in a backdrop and makes the
+  // textarea and mirrored layer disagree about their scroll height.
+  return source.endsWith("\n") ? `${markup} ` : markup;
+}
+
 function highlightedToken(kind: string, text: string): string {
   return `<span class="tok-${kind}">${escapeHtml(text)}</span>`;
 }
@@ -157,9 +163,7 @@ export function highlightRune(source: string): string {
     expectsFunctionName = false;
   }
 
-  // A trailing newline otherwise collapses in the backdrop and makes the
-  // textarea and highlighted layer disagree about their scroll height.
-  return source.endsWith("\n") ? `${markup} ` : markup;
+  return preserveTrailingNewline(source, markup);
 }
 
 /** Convert RUNE's Unicode code-point columns to textarea UTF-16 offsets. */
@@ -184,4 +188,62 @@ export function sourceOffsetAtPosition(
     }
   }
   return offset;
+}
+
+/**
+ * Mirror source text with only the active trace span visibly marked.
+ *
+ * This markup belongs in its own editor layer. Syntax highlighting remains
+ * untouched, so stepping never rebuilds or annotates token markup.
+ */
+export function highlightActiveTraceSpan(
+  source: string,
+  span: { start: { line: number; column: number }; end: {
+    line: number;
+    column: number;
+  } } | null,
+): string {
+  if (span === null) {
+    return preserveTrailingNewline(source, escapeHtml(source));
+  }
+  const start = sourceOffsetAtPosition(source, span.start);
+  const end = Math.max(start, sourceOffsetAtPosition(source, span.end));
+  const activeSource = source.slice(start, end);
+  const marked = activeSource.length === 0 ? " " : escapeHtml(activeSource);
+  return preserveTrailingNewline(
+    source,
+    [
+      escapeHtml(source.slice(0, start)),
+      `<span class="trace-active-source">${marked}</span>`,
+      escapeHtml(source.slice(end)),
+    ].join(""),
+  );
+}
+
+export function scrollTopToRevealLine({
+  line,
+  scrollTop,
+  viewportHeight,
+  lineHeight,
+  paddingTop,
+}: {
+  line: number;
+  scrollTop: number;
+  viewportHeight: number;
+  lineHeight: number;
+  paddingTop: number;
+}): number {
+  if (viewportHeight <= 0 || lineHeight <= 0) {
+    return scrollTop;
+  }
+  const lineTop = paddingTop + (Math.max(1, line) - 1) * lineHeight;
+  const lineBottom = lineTop + lineHeight;
+  const context = Math.min(lineHeight * 2, viewportHeight / 3);
+  if (lineTop < scrollTop + context) {
+    return Math.max(0, lineTop - context);
+  }
+  if (lineBottom > scrollTop + viewportHeight - context) {
+    return Math.max(0, lineBottom - viewportHeight + context);
+  }
+  return scrollTop;
 }

@@ -1,9 +1,12 @@
+from pathlib import Path
 import sys
 import time
 from types import SimpleNamespace
 
 import pytest
 
+from rune.limits import TraceLimits
+from rune.runtime import trace_evaluate
 from rune_web import worker as rune_worker
 from rune_web.isolation import IsolationStatus
 from rune_web.worker import (
@@ -12,6 +15,8 @@ from rune_web.worker import (
     evaluate_isolated,
     trace_isolated,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _hanging_evaluator(source, state=None, limits=None):
@@ -365,6 +370,23 @@ def test_trace_worker_supplies_finite_execution_and_trace_limits(
     assert result_path.exists()
     assert observed["limits"].is_unbounded is False
     assert observed["trace_limits"].max_serialized_bytes == (
+        rune_worker.MAX_TRACE_ARTIFACT_BYTES
+    )
+
+
+def test_hosted_trace_budget_completes_the_full_walkthrough():
+    source = (REPO_ROOT / "examples" / "full.rune").read_text()
+
+    result = trace_evaluate(
+        source,
+        trace_limits=TraceLimits(
+            max_serialized_bytes=rune_worker.MAX_TRACE_ARTIFACT_BYTES,
+        ),
+    )
+
+    assert result.ok
+    assert result.frames[-1].status == "completed"
+    assert len(result.artifact_json_bytes()) <= (
         rune_worker.MAX_TRACE_ARTIFACT_BYTES
     )
 

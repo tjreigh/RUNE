@@ -8,7 +8,7 @@
   content="Write and run RUNE, a tiny integer language with chaotic truthiness."
 >
 <title>RUNE Playground</title>
-<link rel="stylesheet" href="/static/style.css?v=0.8.0">
+<link rel="stylesheet" href="/static/style.css?v=0.9.0">
 <script src="/static/build/app.js?v=0.9.0" type="module"></script>
 </head>
 <body>
@@ -45,7 +45,7 @@
         <p class="section-label">Program</p>
         <h2 id="editor-heading">Write RUNE</h2>
       </div>
-      <p class="runtime-state" aria-live="polite">
+      <p id="runtime-state" class="runtime-state" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
         chaos: <strong id="chaos-level">1</strong>
       </p>
@@ -86,6 +86,11 @@
       data-editor-theme="classic-dark"
     >
       <pre
+        id="trace-highlighting"
+        class="editor-trace-highlighting"
+        aria-hidden="true"
+      ><code id="trace-highlighting-content"></code></pre>
+      <pre
         id="highlighting"
         class="editor-highlighting"
         aria-hidden="true"
@@ -114,6 +119,9 @@ answer</textarea>
       <button id="run" class="primary-action" type="button">
         <span aria-hidden="true">▶</span> Run
       </button>
+      <button id="debug" class="secondary-action" type="button">
+        Debug
+      </button>
       <button id="reset" class="secondary-action" type="button">Reset session</button>
     </div>
 
@@ -121,6 +129,34 @@ answer</textarea>
       <div class="output-heading">
         <h3 id="output-heading">Output</h3>
         <span>integers, one per line</span>
+      </div>
+      <div class="debugger" aria-labelledby="debugger-heading">
+        <div class="debugger-heading">
+          <h4 id="debugger-heading">Trace playback</h4>
+          <p
+            id="debug-status"
+            class="debug-status"
+            role="status"
+            aria-live="polite"
+          >Debugger idle.</p>
+        </div>
+        <div class="debug-controls" aria-label="Trace playback controls">
+          <button id="step-back" type="button" disabled>← Step back</button>
+          <button id="step" type="button" disabled>Step →</button>
+          <button
+            id="step-over"
+            type="button"
+            title="Run over nested calls or to the end of the enclosing loop"
+            disabled
+          >Step over ⇥</button>
+          <button
+            id="step-out"
+            type="button"
+            title="Run until the current function invocation returns"
+            disabled
+          >Step out ↥</button>
+          <button id="stop" type="button" disabled>Stop</button>
+        </div>
       </div>
       <div id="output" role="region" aria-live="polite" aria-label="Program output"></div>
     </section>
@@ -155,6 +191,15 @@ answer</textarea>
           aria-controls="inspector-stats-panel"
           tabindex="-1"
         >Stats</button>
+        <button
+          type="button"
+          id="inspector-context-tab"
+          class="inspector-tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="inspector-context-panel"
+          tabindex="-1"
+        >Context</button>
       </div>
 
       <section
@@ -183,6 +228,15 @@ Variables: (none)</pre>
         hidden
       >
         <pre id="inspector-stats">No evaluation yet.</pre>
+      </section>
+      <section
+        id="inspector-context-panel"
+        class="inspector-panel"
+        role="tabpanel"
+        aria-labelledby="inspector-context-tab"
+        hidden
+      >
+        <pre id="inspector-context">No trace loaded.</pre>
       </section>
     </details>
   </section>

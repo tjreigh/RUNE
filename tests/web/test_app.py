@@ -901,11 +901,18 @@ def test_root_route_serves_html():
     assert "answer = answer + 2" in response.text
     assert '<details id="inspector" class="inspector">' in response.text
     assert 'role="tablist" aria-label="Runtime internals"' in response.text
-    assert response.text.count('role="tabpanel"') == 3
+    assert response.text.count('role="tabpanel"') == 4
     assert 'id="inspector-state">Chaos threshold: 1' in response.text
     assert 'id="validation-status"' in response.text
     assert 'role="status"' in response.text
     assert 'id="highlighting-content"' in response.text
+    assert 'id="trace-highlighting-content"' in response.text
+    assert 'id="debug"' in response.text
+    assert 'id="step-back"' in response.text
+    assert 'id="step-over"' in response.text
+    assert 'id="step-out"' in response.text
+    assert 'id="runtime-state"' in response.text
+    assert 'id="inspector-context"' in response.text
     assert 'id="source-position"' in response.text
     assert 'id="editor-theme"' in response.text
     assert 'id="page-theme"' in response.text
@@ -923,7 +930,7 @@ def test_root_route_serves_html():
     assert 'id="guide-heading">How RUNE works<' in response.text
     assert "Truth has a threshold" in response.text
     assert "Strings collapse to the sum of their Unicode code points" in response.text
-    assert 'href="/static/style.css?v=0.8.0"' in response.text
+    assert 'href="/static/style.css?v=0.9.0"' in response.text
     assert 'src="/static/build/app.js?v=0.9.0" type="module"' in response.text
 
 
@@ -943,18 +950,22 @@ def test_static_css_and_javascript_are_served_separately():
     editor = client.get("/static/build/editor.js")
     formatters = client.get("/static/build/formatters.js")
     repl = client.get("/static/build/repl.js")
+    trace_player = client.get("/static/build/trace-player.js")
     assert javascript.status_code == 200
     assert editor.status_code == 200
     assert formatters.status_code == 200
     assert repl.status_code == 200
+    assert trace_player.status_code == 200
     assert "javascript" in javascript.headers["content-type"]
     assert "javascript" in editor.headers["content-type"]
     assert "javascript" in formatters.headers["content-type"]
     assert "javascript" in repl.headers["content-type"]
+    assert "javascript" in trace_player.headers["content-type"]
     assert javascript.headers["cache-control"] == "no-cache"
     assert editor.headers["cache-control"] == "no-cache"
     assert formatters.headers["cache-control"] == "no-cache"
     assert repl.headers["cache-control"] == "no-cache"
+    assert trace_player.headers["cache-control"] == "no-cache"
     assert 'import { startRuneRepl } from "./repl.js"' in javascript.text
     assert "payload.session_id = sessionId" in repl.text
     assert "`/examples/${encodeURIComponent(key)}.rune`" in repl.text
@@ -962,6 +973,7 @@ def test_static_css_and_javascript_are_served_separately():
     assert "function factorial(n)" not in repl.text
     assert 'fetch("/reset"' in repl.text
     assert 'fetch("/validate"' in repl.text
+    assert 'fetch("/debug"' in repl.text
     assert "validationController.abort()" in repl.text
     assert "mySeq !== validationRequestSeq" in repl.text
     assert "}, 300);" in repl.text
@@ -969,6 +981,7 @@ def test_static_css_and_javascript_are_served_separately():
     assert "function highlightRune(source)" in editor.text
     assert "updateEditorHighlighting()" in repl.text
     assert "syncEditorScroll" in repl.text
+    assert "class TracePlayback" in trace_player.text
     assert 'localStorage.setItem("rune-editor-theme"' in repl.text
     assert 'localStorage.setItem("rune-page-theme"' in repl.text
     assert "payload.state" not in repl.text

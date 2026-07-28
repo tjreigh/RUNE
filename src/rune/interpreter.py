@@ -88,8 +88,8 @@ class Interpreter:
         loop_instance_id=None,
     ):
         if self._trace_recorder is None:
-            return
-        self._trace_recorder.capture(
+            return None
+        return self._trace_recorder.capture(
             self,
             node=node,
             kind=kind or type(node).__name__,
@@ -99,7 +99,15 @@ class Interpreter:
 
     def _trace_control_flow(self, kind):
         if self._trace_recorder is not None:
-            self._trace_recorder.record_control_flow(kind)
+            frame_index = (
+                self._statement_entries[-1].get("trace_frame")
+                if self._statement_entries
+                else None
+            )
+            self._trace_recorder.record_control_flow(
+                kind,
+                frame_index=frame_index,
+            )
 
     def _trace_control_destination_ready(self):
         if self._trace_recorder is not None:
@@ -296,7 +304,7 @@ class Interpreter:
 
     def _visit_statement(self, node):
         """Enter a statement without changing the public ``visit`` hook."""
-        marker = {"node": node, "consumed": False}
+        marker = {"node": node, "consumed": False, "trace_frame": None}
         self._statement_entries.append(marker)
         try:
             return self.visit(node)
@@ -344,7 +352,7 @@ class Interpreter:
                     ChaosBlockNode,
                 ),
             ):
-                self._trace_boundary(node)
+                statement_entry["trace_frame"] = self._trace_boundary(node)
 
             if isinstance(node, NumberNode):
                 return self.visit_number(node)

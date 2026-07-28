@@ -18,6 +18,9 @@ Added:
   diagnostics referenced by error frames, and explicit artifact availability.
 - An isolated `POST /debug` backend that records a trace from a normal web
   session snapshot without committing the traced program's final state.
+- A browser trace player with Debug, Step Back, Step, Step Over, Step Out, and
+  Stop controls; reversible state, output, and event playback; source-span
+  highlighting; and frame context, stack, loop, statistics, and budget views.
 
 Changed:
 
@@ -30,12 +33,20 @@ Changed:
   deployment, and frontend boundaries.
 - Browser code is authored as strict TypeScript modules and built with the
   Yarn-locked frontend toolchain before testing, packaging, or deployment.
+- Trace control-flow linking supports nested recursive returns whose observable
+  destinations coincide, and the hosted 64 KiB artifact budget accommodates
+  the full walkthrough while retaining an independent response-envelope cap.
 
 Behavior and migration notes:
 
 - `chaos` is now reserved for scoped chaos blocks.
 - Debugging may create or reuse an ordinary browser session, but a debug run
   never commits state. Reset invalidates an in-flight debug result.
+- Stopping a trace or editing its source returns the browser to the last
+  committed Run result. Step Over exits the innermost enclosing loop, matching
+  the loop-aware debugger behavior, or advances past nested function calls
+  until execution returns to the current call depth. Step Out advances until
+  the current function invocation returns to its caller.
 - Trace diagnostics are stored once at the artifact level; error frames refer
   to them by `diagnostic_index`.
 - Before deploying over an installation whose root-owned deployer

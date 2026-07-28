@@ -242,6 +242,33 @@ def test_return_to_program_completion_has_explicit_terminal_destination():
     assert destination.active is None
 
 
+def test_nested_recursive_returns_can_share_the_next_observed_destination():
+    result = trace_evaluate(
+        "function factorial(n)\n"
+        "if (n <= 1)\n"
+        "return 1\n"
+        "end if\n"
+        "return n * factorial(n - 1)\n"
+        "end function\n"
+        "factorial(5)"
+    )
+    returns = [
+        frame
+        for frame in result.frames
+        if frame.active is not None
+        and frame.active["node_kind"] == "ReturnNode"
+    ]
+
+    assert result.ok
+    assert result.frames[-1].changes["output_values"] == [120]
+    assert len(returns) == 5
+    assert all(frame.control_flow is not None for frame in returns)
+    assert all(
+        frame.control_flow["destination_frame"] > frame.number
+        for frame in returns
+    )
+
+
 @pytest.mark.parametrize(
     "source,node_kind,destination_kind",
     [

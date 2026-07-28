@@ -225,7 +225,7 @@ class TraceRecorder:
         self._events = 0
         self._pending_output_values = []
         self._pending_events = []
-        self._pending_control_flow = None
+        self._pending_control_flows = []
         self._frame_sizes = []
         self._empty_payload_bytes = self._empty_payload_size()
         self._serialized_bytes = self._empty_payload_bytes
@@ -332,30 +332,53 @@ class TraceRecorder:
         self._events += 1
         self._pending_events.append(event.to_dict())
 
-    def record_control_flow(self, kind):
-        """Mark the latest checkpoint as an executed non-local transfer."""
+    def record_control_flow(self, kind, *, frame_index=None):
+        """Mark one statement checkpoint as an executed non-local transfer."""
         expected_node_kind = {
             "break": "BreakNode",
             "continue": "ContinueNode",
             "return": "ReturnNode",
         }.get(kind)
+        if frame_index is None:
+            frame_index = len(self.frames) - 1
+        frame = (
+            self.frames[frame_index]
+            if 0 <= frame_index < len(self.frames)
+            else None
+        )
         if (
             expected_node_kind is None
-            or not self.frames
-            or self.frames[-1].active is None
-            or self.frames[-1].active["node_kind"] != expected_node_kind
+            or frame is None
+            or frame.active is None
+            or frame.active["node_kind"] != expected_node_kind
         ):
             raise RuntimeError("Control-flow checkpoint is missing")
-        if self._pending_control_flow is not None:
-            raise RuntimeError("Control-flow destination is still pending")
-        self._pending_control_flow = (len(self.frames) - 1, kind, False)
+        if any(
+            pending_index == frame_index
+            for pending_index, _pending_kind, _ready
+            in self._pending_control_flows
+        ):
+            raise RuntimeError("Control-flow checkpoint is already pending")
+        self._pending_control_flows.append((frame_index, kind, False))
 
     def control_flow_destination_ready(self):
         """Allow the next checkpoint to become the transfer destination."""
-        if self._pending_control_flow is None:
-            raise RuntimeError("Control-flow checkpoint is missing")
-        frame_index, kind, _ready = self._pending_control_flow
-        self._pending_control_flow = (frame_index, kind, True)
+        for pending_index in range(
+            len(self._pending_control_flows) - 1,
+            -1,
+            -1,
+        ):
+            frame_index, kind, ready = self._pending_control_flows[
+                pending_index
+            ]
+            if not ready:
+                self._pending_control_flows[pending_index] = (
+                    frame_index,
+                    kind,
+                    True,
+                )
+                return
+        raise RuntimeError("Control-flow checkpoint is missing")
 
     def _changes(self, current):
         if self._previous is None:
@@ -496,8 +519,10 @@ class TraceRecorder:
             diagnostic_index=diagnostic_index,
         )
         encoded_size = len(_canonical_json_bytes(frame.to_dict()))
-        linked_frame, linked_size_delta = self._linked_control_frame(
-            frame.number
+        linked_frames = self._linked_control_frames(frame.number)
+        linked_size_delta = sum(
+            size_delta
+            for _frame_index, _linked_frame, size_delta in linked_frames
         )
         delimiter_size = 1 if self.frames else 0
         if (
@@ -511,7 +536,7 @@ class TraceRecorder:
                 "Trace serialization budget exceeded",
                 span,
             )
-        self._apply_control_link(linked_frame, linked_size_delta)
+        self._apply_control_links(linked_frames)
         self.frames.append(frame)
         added_size = delimiter_size + encoded_size
         self._frame_sizes.append(added_size)
@@ -519,35 +544,42 @@ class TraceRecorder:
         self._previous = current
         self._pending_output_values.clear()
         self._pending_events.clear()
+        return frame.number
 
-    def _linked_control_frame(self, destination_number):
-        if self._pending_control_flow is None:
-            return None, 0
-        frame_index, kind, ready = self._pending_control_flow
-        if not ready:
-            return None, 0
-        frame = self.frames[frame_index]
-        linked = replace(
-            frame,
-            control_flow={
-                "kind": kind,
-                "destination_frame": destination_number,
-            },
-        )
-        size_delta = (
-            len(_canonical_json_bytes(linked.to_dict()))
-            - len(_canonical_json_bytes(frame.to_dict()))
-        )
-        return linked, size_delta
+    def _linked_control_frames(self, destination_number):
+        linked_frames = []
+        for frame_index, kind, ready in self._pending_control_flows:
+            if not ready:
+                continue
+            frame = self.frames[frame_index]
+            linked = replace(
+                frame,
+                control_flow={
+                    "kind": kind,
+                    "destination_frame": destination_number,
+                },
+            )
+            size_delta = (
+                len(_canonical_json_bytes(linked.to_dict()))
+                - len(_canonical_json_bytes(frame.to_dict()))
+            )
+            linked_frames.append((frame_index, linked, size_delta))
+        return linked_frames
 
-    def _apply_control_link(self, linked_frame, size_delta):
-        if linked_frame is None:
+    def _apply_control_links(self, linked_frames):
+        if not linked_frames:
             return
-        frame_index, _kind, _ready = self._pending_control_flow
-        self.frames[frame_index] = linked_frame
-        self._frame_sizes[frame_index] += size_delta
-        self._serialized_bytes += size_delta
-        self._pending_control_flow = None
+        linked_indexes = set()
+        for frame_index, linked_frame, size_delta in linked_frames:
+            self.frames[frame_index] = linked_frame
+            self._frame_sizes[frame_index] += size_delta
+            self._serialized_bytes += size_delta
+            linked_indexes.add(frame_index)
+        self._pending_control_flows = [
+            pending
+            for pending in self._pending_control_flows
+            if pending[0] not in linked_indexes
+        ]
 
     def finish_success(self, interpreter):
         self.capture(
@@ -580,11 +612,11 @@ class TraceRecorder:
         dropped_index = len(self.frames) - 1
         self.frames.pop()
         self._serialized_bytes -= self._frame_sizes.pop()
-        if (
-            self._pending_control_flow is not None
-            and self._pending_control_flow[0] == dropped_index
-        ):
-            self._pending_control_flow = None
+        self._pending_control_flows = [
+            pending
+            for pending in self._pending_control_flows
+            if pending[0] != dropped_index
+        ]
 
     def _append_truncated_error(self, interpreter, diagnostic):
         """Fit an explicit terminal marker without exceeding trace limits.
@@ -639,8 +671,10 @@ class TraceRecorder:
                 truncated=True,
             )
             encoded_size = len(_canonical_json_bytes(terminal.to_dict()))
-            linked_frame, linked_size_delta = self._linked_control_frame(
-                terminal.number
+            linked_frames = self._linked_control_frames(terminal.number)
+            linked_size_delta = sum(
+                size_delta
+                for _frame_index, _linked_frame, size_delta in linked_frames
             )
             delimiter_size = 1 if self.frames else 0
             fits_frames = len(self.frames) < self.limits.max_frames
@@ -652,7 +686,7 @@ class TraceRecorder:
                 <= self.limits.max_serialized_bytes
             )
             if fits_frames and fits_bytes:
-                self._apply_control_link(linked_frame, linked_size_delta)
+                self._apply_control_links(linked_frames)
                 self.frames.append(terminal)
                 added_size = delimiter_size + encoded_size
                 self._frame_sizes.append(added_size)

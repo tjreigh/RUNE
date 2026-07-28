@@ -263,10 +263,20 @@ For frontend-only work, `yarn typecheck` checks the TypeScript sources,
 Node behavior tests. Generated modules live under
 `src/rune_web/static/build/` and are deliberately ignored by Git.
 
-Expand **Show internals** beneath the output to inspect committed variables and
-the chaos threshold, runtime events from the latest evaluation, and execution
-statistics. Failed evaluations show the state that remained committed rather
-than partial working changes.
+Choose **Debug** to record one bounded, non-committing execution, then use
+**Step Back**, **Step**, **Step Over**, or **Step Out** to replay it locally.
+The highlighted source span is the next statement to execute; chaos, output,
+variables, locals, events, stack and loop context, statistics, and remaining
+budgets reflect work completed before that statement. **Stop** or a source edit
+leaves the ordinary session at its last committed **Run** result. Within a
+loop, **Step Over** advances to the first frame after the innermost enclosing
+loop; outside a loop, it advances past any nested function calls and stops when
+execution returns to the current call depth. Use **Step** to enter a call and
+inspect each recursive invocation, then **Step Out** to return to its caller.
+
+Expand **Runtime internals** beneath the output to inspect committed state after
+a normal Run or the selected frame during trace playback. Failed evaluations
+show the state that remained committed rather than partial working changes.
 
 Run the test suite with `scripts/test.sh`. Extra arguments are passed to pytest,
 so `scripts/test.sh -k isolation` works too.
