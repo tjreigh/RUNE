@@ -36,6 +36,9 @@ Behavior and migration notes:
   never commits state. Reset invalidates an in-flight debug result.
 - Trace diagnostics are stored once at the artifact level; error frames refer
   to them by `diagnostic_index`.
+- Before deploying over an installation whose root-owned deployer
+  still imports `app` from `web/`, manually update the reviewed deployer and
+  service policy as described in `deploy/README.md`.
 
 ## v0.8.0 — 2026-07-25
 

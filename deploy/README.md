@@ -129,6 +129,33 @@ This is the only step where repository deployment policy crosses into the
 root-owned control plane. Repeat it only after reviewing an intentional policy
 change; ordinary application updates do not repeat it.
 
+### Upgrading across the `rune_web` packaging change
+
+The unreleased development after RUNE v0.8 moved the web adapter from `web/`
+into the installed `rune_web` package. The root-owned deployer and systemd unit
+therefore need to be updated before the first deployment containing that
+change. A deployment that reaches `ModuleNotFoundError: No module named 'app'`
+is still using a deployer built for the former layout.
+
+From a checkout at the exact commit you intend to deploy, review the
+control-plane changes and repeat the installation commands above. Then render
+the updated service policy:
+
+```sh
+sudo DOMAIN=rune.example.com rune-install-policy
+```
+
+Replace `rune.example.com` with the production hostname. Confirm both installed
+copies use the packaged application entrypoint before deploying:
+
+```sh
+sudo grep -F "import rune_web.app" /usr/local/sbin/rune-deploy
+sudo systemctl cat rune.service | grep -F "rune_web.app:app"
+```
+
+Both checks must succeed. This step is manual by design: application code runs
+without authority to replace the root-owned deployer or systemd policy.
+
 ## Protect Caddy administration
 
 Caddy's default admin API listens without authentication on localhost TCP.
