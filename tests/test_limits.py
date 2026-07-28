@@ -441,7 +441,7 @@ def test_loop_limit_failure_is_transactional_and_recovers_active_depth():
     with pytest.raises(RuneLimitError):
         interpreter.interpret(program.ast)
 
-    assert interpreter._active_loop_depth == 0
+    assert interpreter._execution.depth == 0
 
     result = execute(
         program,

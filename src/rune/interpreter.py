@@ -28,6 +28,7 @@ from .diagnostics import RuneError, RuneInternalError, RuneLimitError, RuneRunti
 from .runtime_state import RuntimeState, RuntimeEvent
 from .limits import ExecutionLimits, ExecutionStats
 from .bindings import BindingEnvironment
+from .execution_context import ExecutionContext, ExecutionFrameKind
 
 
 class _LoopControlSignal(Exception):
@@ -73,8 +74,7 @@ class Interpreter:
         self._event_count = 0
         self._loop_iterations = 0
         self._bindings = BindingEnvironment()
-        self._active_loop_depth = 0
-        self._active_function_depth = 0
+        self._execution = ExecutionContext()
         self._functions = {}
 
     @property
@@ -451,42 +451,49 @@ class Interpreter:
             )
 
         previous = self.state.chaos_threshold
-        self.state = self.state.with_chaos_threshold(threshold)
-        try:
-            self._record_event(
-                RuntimeEvent(
-                    kind="chaos_scope_entered",
-                    data={
-                        "previous_threshold": previous,
-                        "threshold": threshold,
-                    },
-                    span=node.header_span or node.span,
-                )
-            )
-            return self._exec_block(node.body)
-        finally:
-            pending_error = sys.exc_info()[1]
-            # Restore first so even a secondary event-budget failure cannot
-            # leak the temporary threshold into the interpreter's working state.
-            active = self.state.chaos_threshold
-            self.state = self.state.with_chaos_threshold(previous)
+        with self._execution.frame(
+            ExecutionFrameKind.CHAOS,
+            span=node.span,
+            previous_chaos_threshold=previous,
+            entered_chaos_threshold=threshold,
+        ) as chaos_frame:
+            self.state = self.state.with_chaos_threshold(threshold)
             try:
                 self._record_event(
                     RuntimeEvent(
-                        kind="chaos_scope_restored",
+                        kind="chaos_scope_entered",
                         data={
-                            "previous_threshold": active,
-                            "threshold": previous,
+                            "previous_threshold": previous,
+                            "threshold": threshold,
                         },
-                        span=node.end_span or node.span,
+                        span=node.header_span or node.span,
                     )
                 )
-            except RuneLimitError:
-                # Preserve an already-active language failure. Successful and
-                # non-local control-flow exits still remain subject to the
-                # ordinary event budget.
-                if not isinstance(pending_error, RuneError):
-                    raise
+                return self._exec_block(node.body)
+            finally:
+                pending_error = sys.exc_info()[1]
+                # The dynamic chaos frame owns the saved value used for
+                # restoration; restore before recording so even a secondary
+                # event-budget failure cannot leak the temporary threshold.
+                active = self.state.chaos_threshold
+                restored = chaos_frame.previous_chaos_threshold
+                self.state = self.state.with_chaos_threshold(restored)
+                try:
+                    self._record_event(
+                        RuntimeEvent(
+                            kind="chaos_scope_restored",
+                            data={
+                                "previous_threshold": active,
+                                "threshold": restored,
+                            },
+                            span=node.end_span or node.span,
+                        )
+                    )
+                except RuneLimitError:
+                    # Preserve an already-active language failure. Successful
+                    # and non-local control-flow exits remain event-bounded.
+                    if not isinstance(pending_error, RuneError):
+                        raise
 
     def visit_variable(self, node):
         """Look up an already-collapsed numeric variable value."""
@@ -556,7 +563,7 @@ class Interpreter:
                 raise
             if result is None:
                 continue
-            if self._active_function_depth > 0:
+            if self._execution.in_function:
                 continue
             if isinstance(result, list):
                 results.extend(result)
@@ -580,16 +587,17 @@ class Interpreter:
     def visit_while(self, node):
         """Execute a loop while its condition clears the chaos threshold."""
         results = []
-        self._active_loop_depth += 1
-        try:
+        with self._execution.frame(
+            ExecutionFrameKind.WHILE,
+            span=node.span,
+        ) as loop_frame:
             while self.is_chaos_truthy(self.visit(node.condition)):
                 self._begin_loop_iteration(node.condition.span)
+                self._execution.begin_loop_iteration(loop_frame)
                 values, should_break = self._exec_loop_body(node.body)
                 results.extend(values)
                 if should_break:
                     break
-        finally:
-            self._active_loop_depth -= 1
         return results
 
     def visit_for(self, node):
@@ -603,21 +611,26 @@ class Interpreter:
         results = []
         current = start
         counter_span = node.counter_span or node.span
-        with self._binding_scope({node.counter: start}, span=counter_span) as frame:
-            self._active_loop_depth += 1
-            try:
+        with self._execution.frame(
+            ExecutionFrameKind.FOR,
+            span=node.span,
+            counter=node.counter,
+        ) as loop_frame:
+            with self._binding_scope(
+                {node.counter: start},
+                span=counter_span,
+            ) as frame:
                 while (step > 0 and current <= stop) or (
                     step < 0 and current >= stop
                 ):
                     self._begin_loop_iteration(counter_span)
+                    self._execution.begin_loop_iteration(loop_frame)
                     frame.values[node.counter] = current
                     values, should_break = self._exec_loop_body(node.body)
                     results.extend(values)
                     if should_break:
                         break
                     current += step
-            finally:
-                self._active_loop_depth -= 1
         return results
 
     def _exec_loop_body(self, statements):
@@ -631,13 +644,13 @@ class Interpreter:
 
     def visit_break(self, node):
         """Signal an exit from the nearest active loop."""
-        if self._active_loop_depth == 0:
+        if self._execution.active_loop is None:
             raise RuneInternalError("Break outside active loop", node.span)
         raise _BreakSignal()
 
     def visit_continue(self, node):
         """Signal the next iteration of the nearest active loop."""
-        if self._active_loop_depth == 0:
+        if self._execution.active_loop is None:
             raise RuneInternalError("Continue outside active loop", node.span)
         raise _ContinueSignal()
 
@@ -665,22 +678,21 @@ class Interpreter:
 
         arguments = [self.visit(argument) for argument in node.arguments]
         bindings = dict(zip(function.parameters, arguments))
-        with self._binding_scope(
-            bindings,
-            captures_assignments=True,
-            isolates_parent_bindings=True,
+        with self._execution.frame(
+            ExecutionFrameKind.FUNCTION,
             span=node.span,
+            name=node.name,
         ):
-            previous_loop_depth = self._active_loop_depth
-            self._active_loop_depth = 0
-            self._active_function_depth += 1
-            try:
-                self._exec_block(function.body)
-            except _ReturnSignal as signal:
-                return self._check_integer(signal.value, node.span)
-            finally:
-                self._active_function_depth -= 1
-                self._active_loop_depth = previous_loop_depth
+            with self._binding_scope(
+                bindings,
+                captures_assignments=True,
+                isolates_parent_bindings=True,
+                span=node.span,
+            ):
+                try:
+                    self._exec_block(function.body)
+                except _ReturnSignal as signal:
+                    return self._check_integer(signal.value, node.span)
 
         raise RuneRuntimeError(
             f"Function '{node.name}' returned no value",
@@ -689,7 +701,7 @@ class Interpreter:
 
     def visit_return(self, node):
         """Return one evaluated integer from the active function call."""
-        if self._active_function_depth == 0:
+        if self._execution.active_function is None:
             raise RuneInternalError("Return outside active function", node.span)
         raise _ReturnSignal(self.visit(node.value))
 

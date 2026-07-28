@@ -129,6 +129,7 @@ def test_runtime_failure_restores_interpreter_working_threshold():
         interpreter.interpret(parse("chaos 99\n1 / 0\nend chaos"))
 
     assert interpreter.state.chaos_threshold == 7
+    assert interpreter._execution.depth == 0
 
 
 def test_existing_failure_is_not_masked_when_restoration_event_hits_budget():

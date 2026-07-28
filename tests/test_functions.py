@@ -370,8 +370,7 @@ def test_failed_function_call_always_unwinds_local_runtime_context():
         interpreter.interpret(ast)
 
     assert interpreter._bindings.depth == 0
-    assert interpreter._active_function_depth == 0
-    assert interpreter._active_loop_depth == 0
+    assert interpreter._execution.depth == 0
 
 
 def test_manual_return_outside_function_is_an_internal_error():
