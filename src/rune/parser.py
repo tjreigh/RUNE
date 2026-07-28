@@ -358,20 +358,27 @@ class Parser:
         self.eat(TokenType.IF)
         self.eat(TokenType.LPAREN)
         condition = self.expr()
+        closing = self.current_token()
         self.eat(TokenType.RPAREN)
+        header_span = SourceSpan(if_token.span.start, closing.span.end)
 
         branch_terminators = {TokenType.ELIF, TokenType.ELSE, TokenType.END}
         then_block = self.parse_nested_block(branch_terminators, if_token)
         elif_clauses = []
+        elif_header_spans = []
 
         while self.current_token().type == TokenType.ELIF:
             elif_token = self.current_token()
             self.eat(TokenType.ELIF)
             self.eat(TokenType.LPAREN)
             elif_condition = self.expr()
+            elif_closing = self.current_token()
             self.eat(TokenType.RPAREN)
             elif_block = self.parse_nested_block(branch_terminators, elif_token)
             elif_clauses.append((elif_condition, elif_block))
+            elif_header_spans.append(
+                SourceSpan(elif_token.span.start, elif_closing.span.end)
+            )
 
         else_block = None
         if self.current_token().type == TokenType.ELSE:
@@ -385,6 +392,8 @@ class Parser:
             then_block,
             elif_clauses,
             else_block,
+            header_span=header_span,
+            elif_header_spans=elif_header_spans,
             span=SourceSpan(start, end_label.span.end),
         )
 
@@ -395,7 +404,9 @@ class Parser:
         self.eat(TokenType.WHILE)
         self.eat(TokenType.LPAREN)
         condition = self.expr()
+        closing = self.current_token()
         self.eat(TokenType.RPAREN)
+        header_span = SourceSpan(while_token.span.start, closing.span.end)
 
         self._loop_depth += 1
         try:
@@ -407,6 +418,7 @@ class Parser:
         return WhileNode(
             condition,
             body,
+            header_span=header_span,
             span=SourceSpan(start, end_label.span.end),
         )
 
@@ -426,6 +438,9 @@ class Parser:
         if self.current_token().type == TokenType.STEP:
             self.eat(TokenType.STEP)
             step_value = self.expr()
+        header_end = (
+            step_value.span.end if step_value is not None else stop_value.span.end
+        )
 
         self._loop_depth += 1
         try:
@@ -441,6 +456,7 @@ class Parser:
             body,
             step=step_value,
             counter_span=counter_token.span,
+            header_span=SourceSpan(for_token.span.start, header_end),
             span=SourceSpan(start, end_label.span.end),
         )
 

@@ -6,18 +6,24 @@ from .parser import Parser
 from .interpreter import Interpreter
 from .diagnostics import RuneError
 from .runtime_state import RuntimeState, RuntimeEvent
-from .limits import ExecutionLimits, ExecutionStats
+from .limits import ExecutionLimits, ExecutionStats, TraceLimits
+from .tracing import TraceRecorder, TraceFrame, TraceResult
 
 __all__ = [
     "RuntimeState",
     "RuntimeEvent",
     "ExecutionLimits",
     "ExecutionStats",
+    "TraceLimits",
+    "TraceFrame",
+    "TraceResult",
     "CompiledProgram",
     "EvaluationResult",
     "compile_source",
     "execute",
     "evaluate",
+    "trace_execute",
+    "trace_evaluate",
 ]
 
 
@@ -118,3 +124,83 @@ def evaluate(
             stats=None,
         )
     return execute(program, state=base_state, limits=limits)
+
+
+def trace_execute(
+    program: CompiledProgram,
+    state: RuntimeState | None = None,
+    limits: ExecutionLimits | None = None,
+    trace_limits: TraceLimits | None = None,
+) -> TraceResult:
+    """Execute once while recording bounded, non-committing checkpoints."""
+    base_state = state if state is not None else RuntimeState()
+    try:
+        recorder = TraceRecorder(base_state, limits=trace_limits)
+    except RuneError as exc:
+        return TraceResult(
+            diagnostics=[exc.diagnostic],
+            base_state=None,
+            frames=[],
+            artifact_available=False,
+        )
+    interpreter = Interpreter(
+        state=base_state,
+        limits=limits,
+        trace_recorder=recorder,
+    )
+    try:
+        interpreter.interpret(program.ast)
+        # Closing the trace can exceed a recorder budget even after the
+        # program completes; deliberately report that through this error path.
+        recorder.finish_success(interpreter)
+    except RuneError as exc:
+        recorder.finish_error(interpreter, exc)
+        return TraceResult(
+            diagnostics=recorder.diagnostics,
+            base_state=(
+                base_state if recorder.artifact_available else None
+            ),
+            frames=recorder.frames if recorder.artifact_available else [],
+            artifact_available=recorder.artifact_available,
+        )
+    return TraceResult(
+        diagnostics=[],
+        base_state=base_state,
+        frames=recorder.frames,
+        artifact_available=recorder.artifact_available,
+    )
+
+
+def trace_evaluate(
+    source: str,
+    state: RuntimeState | None = None,
+    limits: ExecutionLimits | None = None,
+    trace_limits: TraceLimits | None = None,
+) -> TraceResult:
+    """Compile and record one bounded execution trace."""
+    base_state = state if state is not None else RuntimeState()
+    try:
+        program = compile_source(source)
+    except RuneError as exc:
+        result = TraceResult(
+            diagnostics=[exc.diagnostic],
+            base_state=base_state,
+            frames=[],
+            artifact_available=True,
+        )
+        active_limits = (
+            trace_limits if trace_limits is not None else TraceLimits()
+        )
+        if (
+            len(result.artifact_json_bytes())
+            > active_limits.max_serialized_bytes
+        ):
+            result.base_state = None
+            result.artifact_available = False
+        return result
+    return trace_execute(
+        program,
+        state=base_state,
+        limits=limits,
+        trace_limits=trace_limits,
+    )

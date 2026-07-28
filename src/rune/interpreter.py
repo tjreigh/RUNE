@@ -63,7 +63,7 @@ class Interpreter:
     while enforcing deterministic work, state, output, and integer budgets.
     """
 
-    def __init__(self, state=None, limits=None):
+    def __init__(self, state=None, limits=None, trace_recorder=None):
         self.state = state if state is not None else RuntimeState()
         self.events = []
         self.limits = limits if limits is not None else ExecutionLimits()
@@ -76,6 +76,48 @@ class Interpreter:
         self._bindings = BindingEnvironment()
         self._execution = ExecutionContext()
         self._functions = {}
+        self._trace_recorder = trace_recorder
+        self._statement_entries = []
+
+    def _trace_boundary(
+        self,
+        node,
+        *,
+        kind=None,
+        span=None,
+        loop_instance_id=None,
+    ):
+        if self._trace_recorder is None:
+            return
+        self._trace_recorder.capture(
+            self,
+            node=node,
+            kind=kind or type(node).__name__,
+            span=span or getattr(node, "span", None),
+            loop_instance_id=loop_instance_id,
+        )
+
+    def _trace_control_flow(self, kind):
+        if self._trace_recorder is not None:
+            self._trace_recorder.record_control_flow(kind)
+
+    def _trace_control_destination_ready(self):
+        if self._trace_recorder is not None:
+            self._trace_recorder.control_flow_destination_ready()
+
+    def trace_snapshot(self):
+        """Return one detached, JSON-safe view for optional observers."""
+        return {
+            "state": self.state.to_dict(),
+            "bindings": self._bindings.trace_snapshot(),
+            "stats": self.stats.to_dict(),
+            "execution": self._execution.snapshot(),
+            "execution_limits": {
+                "max_steps": self.limits.max_steps,
+                "max_output_values": self.limits.max_output_values,
+                "max_events": self.limits.max_events,
+            },
+        }
 
     @property
     def stats(self):
@@ -107,6 +149,8 @@ class Interpreter:
             raise RuneLimitError("Event budget exceeded", event.span)
         self.events.append(event)
         self._event_count += 1
+        if self._trace_recorder is not None:
+            self._trace_recorder.record_event(event)
 
     def _emit(self, value, span):
         """Count one output value against the output budget. Unlike steps
@@ -117,6 +161,8 @@ class Interpreter:
         if maximum is not None and self._output_count + 1 > maximum:
             raise RuneLimitError("Output budget exceeded", span)
         self._output_count += 1
+        if self._trace_recorder is not None:
+            self._trace_recorder.record_output(value, span)
         return value
 
     def _check_integer(self, value, span):
@@ -145,6 +191,9 @@ class Interpreter:
         captures_assignments=False,
         isolates_parent_bindings=False,
         span=None,
+        scope_id=None,
+        kind="lexical",
+        label=None,
     ):
         """Create an ephemeral lexical frame within the variable budget."""
         values = dict(values or {})
@@ -162,6 +211,9 @@ class Interpreter:
             values,
             captures_assignments,
             isolates_parent_bindings,
+            scope_id=scope_id,
+            kind=kind,
+            label=label,
         )
 
     def _checked_multiply(self, left, right, span):
@@ -242,8 +294,24 @@ class Interpreter:
             return -1 if value < 0 else 0
         return value >> count
 
+    def _visit_statement(self, node):
+        """Enter a statement without changing the public ``visit`` hook."""
+        marker = {"node": node, "consumed": False}
+        self._statement_entries.append(marker)
+        try:
+            return self.visit(node)
+        finally:
+            popped = self._statement_entries.pop()
+            if popped is not marker:
+                raise RuntimeError("Statement-entry stack corrupted")
+
     def visit(self, node):
-        """Dispatch to appropriate visit method based on node type"""
+        """Charge and dispatch one AST node.
+
+        Statement checkpoints are emitted after the node's step/depth charge
+        but before its semantics. Compound statements own their specialized
+        condition/scope checkpoints inside the corresponding visitor.
+        """
         self._tick(getattr(node, "span", None))
 
         self._depth += 1
@@ -256,6 +324,27 @@ class Interpreter:
                 raise RuneLimitError(
                     "Recursion depth exceeded", getattr(node, "span", None)
                 )
+
+            statement_entry = (
+                self._statement_entries[-1]
+                if self._statement_entries
+                and self._statement_entries[-1]["node"] is node
+                and not self._statement_entries[-1]["consumed"]
+                else None
+            )
+            if statement_entry is not None:
+                statement_entry["consumed"] = True
+            if statement_entry is not None and not isinstance(
+                node,
+                (
+                    FunctionDefinitionNode,
+                    IfNode,
+                    WhileNode,
+                    ForNode,
+                    ChaosBlockNode,
+                ),
+            ):
+                self._trace_boundary(node)
 
             if isinstance(node, NumberNode):
                 return self.visit_number(node)
@@ -443,6 +532,11 @@ class Interpreter:
 
     def visit_chaos_block(self, node):
         """Execute a block under a temporary, dynamically visible threshold."""
+        self._trace_boundary(
+            node,
+            kind="ChaosScopeEnter",
+            span=node.header_span or node.span,
+        )
         threshold = self._check_integer(self.visit(node.threshold), node.threshold.span)
         if threshold < 0:
             raise RuneRuntimeError(
@@ -453,7 +547,7 @@ class Interpreter:
         previous = self.state.chaos_threshold
         with self._execution.frame(
             ExecutionFrameKind.CHAOS,
-            span=node.span,
+            span=node.header_span or node.span,
             previous_chaos_threshold=previous,
             entered_chaos_threshold=threshold,
         ) as chaos_frame:
@@ -472,6 +566,12 @@ class Interpreter:
                 return self._exec_block(node.body)
             finally:
                 pending_error = sys.exc_info()[1]
+                if not isinstance(pending_error, RuneError):
+                    self._trace_boundary(
+                        node,
+                        kind="ChaosScopeExit",
+                        span=node.end_span or node.span,
+                    )
                 # The dynamic chaos frame owns the saved value used for
                 # restoration; restore before recording so even a secondary
                 # event-budget failure cannot leak the temporary threshold.
@@ -557,7 +657,7 @@ class Interpreter:
         results = []
         for stmt in statements:
             try:
-                result = self.visit(stmt)
+                result = self._visit_statement(stmt)
             except _LoopControlSignal as signal:
                 signal.values[0:0] = results
                 raise
@@ -573,10 +673,25 @@ class Interpreter:
 
     def visit_if(self, node):
         """Execute the first conditional branch that clears the chaos threshold."""
+        self._trace_boundary(
+            node,
+            kind="IfCondition",
+            span=node.header_span or node.condition.span,
+        )
         if self.is_chaos_truthy(self.visit(node.condition)):
             return self._exec_block(node.then_block)
 
-        for condition, statements in node.elif_clauses:
+        for index, (condition, statements) in enumerate(node.elif_clauses):
+            header_span = (
+                node.elif_header_spans[index]
+                if index < len(node.elif_header_spans)
+                else None
+            )
+            self._trace_boundary(
+                node,
+                kind="ElifCondition",
+                span=header_span or condition.span,
+            )
             if self.is_chaos_truthy(self.visit(condition)):
                 return self._exec_block(statements)
 
@@ -589,9 +704,17 @@ class Interpreter:
         results = []
         with self._execution.frame(
             ExecutionFrameKind.WHILE,
-            span=node.span,
+            span=node.header_span or node.span,
         ) as loop_frame:
-            while self.is_chaos_truthy(self.visit(node.condition)):
+            while True:
+                self._trace_boundary(
+                    node,
+                    kind="WhileCondition",
+                    span=node.header_span or node.condition.span,
+                    loop_instance_id=loop_frame.instance_id,
+                )
+                if not self.is_chaos_truthy(self.visit(node.condition)):
+                    break
                 self._begin_loop_iteration(node.condition.span)
                 self._execution.begin_loop_iteration(loop_frame)
                 values, should_break = self._exec_loop_body(node.body)
@@ -602,23 +725,32 @@ class Interpreter:
 
     def visit_for(self, node):
         """Execute an inclusive counted loop with a loop-local counter."""
-        start = self.visit(node.start)
-        stop = self.visit(node.stop)
-        step = self.visit(node.step) if node.step is not None else 1
-        if step == 0:
-            raise RuneRuntimeError("For loop step cannot be zero", node.step.span)
-
-        results = []
-        current = start
-        counter_span = node.counter_span or node.span
         with self._execution.frame(
             ExecutionFrameKind.FOR,
-            span=node.span,
+            span=node.header_span or node.span,
             counter=node.counter,
         ) as loop_frame:
+            self._trace_boundary(
+                node,
+                kind="ForCondition",
+                span=node.header_span or node.span,
+                loop_instance_id=loop_frame.instance_id,
+            )
+            start = self.visit(node.start)
+            stop = self.visit(node.stop)
+            step = self.visit(node.step) if node.step is not None else 1
+            if step == 0:
+                raise RuneRuntimeError("For loop step cannot be zero", node.step.span)
+
+            results = []
+            current = start
+            counter_span = node.counter_span or node.span
             with self._binding_scope(
                 {node.counter: start},
                 span=counter_span,
+                scope_id=loop_frame.instance_id,
+                kind="loop",
+                label=node.counter,
             ) as frame:
                 while (step > 0 and current <= stop) or (
                     step < 0 and current >= stop
@@ -631,27 +763,37 @@ class Interpreter:
                     if should_break:
                         break
                     current += step
-        return results
+                    self._trace_boundary(
+                        node,
+                        kind="ForCondition",
+                        span=node.header_span or node.span,
+                        loop_instance_id=loop_frame.instance_id,
+                    )
+            return results
 
     def _exec_loop_body(self, statements):
         """Execute one loop body, preserving output across loop control."""
         try:
             return self._exec_block(statements), False
         except _ContinueSignal as signal:
+            self._trace_control_destination_ready()
             return signal.values, False
         except _BreakSignal as signal:
+            self._trace_control_destination_ready()
             return signal.values, True
 
     def visit_break(self, node):
         """Signal an exit from the nearest active loop."""
         if self._execution.active_loop is None:
             raise RuneInternalError("Break outside active loop", node.span)
+        self._trace_control_flow("break")
         raise _BreakSignal()
 
     def visit_continue(self, node):
         """Signal the next iteration of the nearest active loop."""
         if self._execution.active_loop is None:
             raise RuneInternalError("Continue outside active loop", node.span)
+        self._trace_control_flow("continue")
         raise _ContinueSignal()
 
     def visit_function_definition(self, node):
@@ -682,16 +824,20 @@ class Interpreter:
             ExecutionFrameKind.FUNCTION,
             span=node.span,
             name=node.name,
-        ):
+        ) as function_frame:
             with self._binding_scope(
                 bindings,
                 captures_assignments=True,
                 isolates_parent_bindings=True,
                 span=node.span,
+                scope_id=function_frame.instance_id,
+                kind="function",
+                label=node.name,
             ):
                 try:
                     self._exec_block(function.body)
                 except _ReturnSignal as signal:
+                    self._trace_control_destination_ready()
                     return self._check_integer(signal.value, node.span)
 
         raise RuneRuntimeError(
@@ -703,7 +849,9 @@ class Interpreter:
         """Return one evaluated integer from the active function call."""
         if self._execution.active_function is None:
             raise RuneInternalError("Return outside active function", node.span)
-        raise _ReturnSignal(self.visit(node.value))
+        value = self.visit(node.value)
+        self._trace_control_flow("return")
+        raise _ReturnSignal(value)
 
     def visit_program(self, node):
         """Execute a program with multiple statements"""
@@ -719,7 +867,20 @@ class Interpreter:
         accounted for further down and is returned unchanged."""
         self._check_state()
         self._functions = {}
-        raw = self.visit(ast)
+        if not isinstance(
+            ast,
+            (
+                ProgramNode,
+                FunctionDefinitionNode,
+                IfNode,
+                WhileNode,
+                ForNode,
+                ChaosBlockNode,
+            ),
+        ):
+            raw = self._visit_statement(ast)
+        else:
+            raw = self.visit(ast)
         if raw is None or isinstance(raw, list):
             return raw
         return self._emit(raw, ast.span)

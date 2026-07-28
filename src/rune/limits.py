@@ -77,3 +77,32 @@ class ExecutionStats:
             "runtime_events": self.runtime_events,
             "loop_iterations": self.loop_iterations,
         }
+
+
+@dataclass(frozen=True)
+class TraceLimits:
+    """Independent bounds for optional recorded execution traces.
+
+    ``max_serialized_bytes`` governs the complete canonical trace artifact:
+    status, diagnostics, base state, and frames. A transport may still apply
+    a smaller independent response limit.
+    """
+
+    max_frames: int = 1_000
+    max_serialized_bytes: int = 512 * 1024
+    max_stack_frames: int = 32
+    max_binding_changes: int = 2_000
+    max_output_values: int = 1_000
+    max_events: int = 1_000
+
+    def __post_init__(self):
+        for name in (
+            "max_frames",
+            "max_serialized_bytes",
+            "max_stack_frames",
+            "max_binding_changes",
+            "max_output_values",
+            "max_events",
+        ):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be at least 1")

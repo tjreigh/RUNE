@@ -16,6 +16,19 @@ def test_public_package_exports_runtime_api():
     assert result.ok
     assert result.values == [4]
     assert rune.ExecutionLimits().max_steps == 10_000
+    assert rune.TraceFrame.__annotations__["active"] == (
+        rune.TraceActive | None
+    )
+    assert rune.TraceFrame.__annotations__["changes"] is rune.TraceChanges
+    assert rune.TraceFrame.__annotations__["context"] is rune.TraceContext
+    assert rune.TraceFrame.__annotations__["budgets"] is rune.TraceBudgets
+    assert rune.TraceFrame.__annotations__["control_flow"] == (
+        rune.TraceControlFlow | None
+    )
+    assert rune.TraceResult.to_dict.__annotations__["return"] is (
+        rune.TraceResultDict
+    )
+    assert rune.TraceResult.__annotations__["artifact_available"] is bool
 
 
 def test_project_declares_src_layout_and_console_command():

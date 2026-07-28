@@ -11,6 +11,9 @@ class BindingFrame:
     values: dict[str, int]
     captures_assignments: bool = False
     isolates_parent_bindings: bool = False
+    scope_id: int | None = None
+    kind: str = "lexical"
+    label: str | None = None
 
 
 class BindingEnvironment:
@@ -39,11 +42,17 @@ class BindingEnvironment:
         values=None,
         captures_assignments=False,
         isolates_parent_bindings=False,
+        scope_id=None,
+        kind="lexical",
+        label=None,
     ):
         frame = BindingFrame(
             dict(values or {}),
             captures_assignments,
             isolates_parent_bindings,
+            scope_id,
+            kind,
+            label,
         )
         self._frames.append(frame)
         try:
@@ -52,6 +61,18 @@ class BindingEnvironment:
             popped = self._frames.pop()
             if popped is not frame:
                 raise RuntimeError("Lexical binding stack corrupted")
+
+    def trace_snapshot(self):
+        """Return detached, JSON-safe binding frames for optional tracing."""
+        return [
+            {
+                "scope_id": frame.scope_id,
+                "kind": frame.kind,
+                "label": frame.label,
+                "values": dict(frame.values),
+            }
+            for frame in self._frames
+        ]
 
     def resolve(self, name, root):
         """Return the nearest binding, falling back to the persistent root."""

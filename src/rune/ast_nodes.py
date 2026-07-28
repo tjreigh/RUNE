@@ -156,11 +156,15 @@ class IfNode(SpannedNode):
         elif_clauses=None,
         else_block=None,
         span=None,
+        header_span=None,
+        elif_header_spans=None,
     ):
         self.condition = condition
         self.then_block = then_block
         self.elif_clauses = elif_clauses or []
         self.else_block = else_block
+        self.header_span = header_span
+        self.elif_header_spans = elif_header_spans or []
         self._set_span(span)
 
     def __repr__(self):
@@ -172,9 +176,10 @@ class IfNode(SpannedNode):
 
 class WhileNode(SpannedNode):
     """Represents a chaos-aware while loop."""
-    def __init__(self, condition, body, span=None):
+    def __init__(self, condition, body, span=None, header_span=None):
         self.condition = condition
         self.body = body
+        self.header_span = header_span
         self._set_span(span)
 
     def __repr__(self):
@@ -192,6 +197,7 @@ class ForNode(SpannedNode):
         step=None,
         counter_span=None,
         span=None,
+        header_span=None,
     ):
         self.counter = counter
         self.start = start
@@ -199,6 +205,7 @@ class ForNode(SpannedNode):
         self.body = body
         self.step = step
         self.counter_span = counter_span
+        self.header_span = header_span
         self._set_span(span)
 
     def __repr__(self):

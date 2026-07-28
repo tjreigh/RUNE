@@ -361,7 +361,17 @@ def test_if_then_multiple_elif():
 def test_if_then_elif_else():
     node = _parse("if (0)\n1\nelif (0)\n2\nelse\n3\nend if")
     assert len(node.elif_clauses) == 1
+    assert len(node.elif_clauses[0]) == 2
     assert node.else_block is not None
+
+
+def test_compound_trace_metadata_preserves_positional_span_arguments():
+    span = SourceSpan(Position(1, 1), Position(1, 2))
+    condition = NumberNode(1)
+
+    assert IfNode(condition, [], None, None, span).span is span
+    assert WhileNode(condition, [], span).span is span
+    assert ForNode("i", condition, condition, [], None, None, span).span is span
 
 
 def test_nested_if():
