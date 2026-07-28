@@ -1,8 +1,8 @@
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const test = require("node:test");
-const vm = require("node:vm");
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { highlightRune } from "../../src/rune_web/static/build/editor.js";
+import { startRuneRepl } from "../../src/rune_web/static/build/repl.js";
 
 class FakeElement {
   constructor(value = "") {
@@ -95,10 +95,9 @@ function loadApp(fetchImpl, initialStoredValues = []) {
     querySelectorAll: () => [],
     createElement: () => new FakeElement(),
   };
-  const context = vm.createContext({
+  startRuneRepl({
     AbortController,
     clearTimeout,
-    console,
     document,
     fetch: fetchImpl,
     localStorage: {
@@ -107,17 +106,7 @@ function loadApp(fetchImpl, initialStoredValues = []) {
     },
     setTimeout,
   });
-  const appPath = path.join(
-    __dirname,
-    "..",
-    "..",
-    "src",
-    "rune_web",
-    "static",
-    "app.js"
-  );
-  vm.runInContext(fs.readFileSync(appPath, "utf8"), context);
-  return { context, elements, storedValues };
+  return { document, elements, storedValues };
 }
 
 const waitForDebounce = () => new Promise((resolve) => setTimeout(resolve, 325));
@@ -195,10 +184,9 @@ test("clicking a Unicode diagnostic selects its source span", async () => {
 });
 
 test("RUNE highlighting recognizes language tokens and escapes source", () => {
-  const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
-  const markup = vm.runInContext(
-    'highlightRune(\'# <note>\\n@chaos 5\\nfunction add(x)\\nreturn x + "<tag>"\\nend function\')',
-    app.context,
+  loadApp(async () => response({ ok: true, diagnostics: [] }));
+  const markup = highlightRune(
+    '# <note>\n@chaos 5\nfunction add(x)\nreturn x + "<tag>"\nend function',
   );
 
   assert.match(markup, /class="tok-comment"># &lt;note&gt;<\/span>/);
@@ -283,20 +271,20 @@ test("page and editor themes are independent and remembered", () => {
   const editorTheme = app.elements.get("editor-theme");
   const pageTheme = app.elements.get("page-theme");
 
-  assert.equal(app.context.document.documentElement.dataset.pageTheme, "dark");
+  assert.equal(app.document.documentElement.dataset.pageTheme, "dark");
   assert.equal(frame.dataset.editorTheme, "classic-light");
 
   editorTheme.value = "cool-light";
   editorTheme.dispatch("change");
 
-  assert.equal(app.context.document.documentElement.dataset.pageTheme, "dark");
+  assert.equal(app.document.documentElement.dataset.pageTheme, "dark");
   assert.equal(frame.dataset.editorTheme, "cool-light");
   assert.equal(app.storedValues.get("rune-editor-theme"), "cool-light");
 
   pageTheme.value = "light";
   pageTheme.dispatch("change");
 
-  assert.equal(app.context.document.documentElement.dataset.pageTheme, "light");
+  assert.equal(app.document.documentElement.dataset.pageTheme, "light");
   assert.equal(frame.dataset.editorTheme, "cool-light");
   assert.equal(app.storedValues.get("rune-page-theme"), "light");
 });
@@ -305,7 +293,7 @@ test("page theme defaults to the live system preference", () => {
   const app = loadApp(async () => response({ ok: true, diagnostics: [] }));
 
   assert.equal(
-    app.context.document.documentElement.dataset.pageTheme,
+    app.document.documentElement.dataset.pageTheme,
     "system",
   );
   assert.equal(app.elements.get("page-theme").value, "system");

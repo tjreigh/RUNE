@@ -15,5 +15,13 @@ if [ ! -x .venv/bin/python ]; then
     exit 1
 fi
 
+if [ ! -x node_modules/.bin/tsc ]; then
+    echo "Frontend dependencies not found. Run scripts/setup.sh first." >&2
+    exit 1
+fi
+
+yarn typecheck
+yarn build
+
 export DYLD_LIBRARY_PATH="/opt/homebrew/opt/expat/lib"
 exec .venv/bin/python -m uvicorn rune_web.app:app --port "${PORT:-8000}"

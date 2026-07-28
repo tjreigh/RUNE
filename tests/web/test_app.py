@@ -272,6 +272,17 @@ def test_frontend_validation_cancellation_and_stale_suppression():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+def test_missing_frontend_build_fails_clearly(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        app_module,
+        "FRONTEND_ENTRYPOINT",
+        tmp_path / "missing-app.js",
+    )
+
+    with pytest.raises(RuntimeError, match="yarn install.*yarn build"):
+        create_app()
+
+
 def test_normal_evaluation():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={"source": "2+2"})
@@ -913,7 +924,7 @@ def test_root_route_serves_html():
     assert "Truth has a threshold" in response.text
     assert "Strings collapse to the sum of their Unicode code points" in response.text
     assert 'href="/static/style.css?v=0.8.0"' in response.text
-    assert 'src="/static/app.js?v=0.8.0"' in response.text
+    assert 'src="/static/build/app.js?v=0.9.0" type="module"' in response.text
 
 
 def test_static_css_and_javascript_are_served_separately():
@@ -928,36 +939,47 @@ def test_static_css_and_javascript_are_served_separately():
     assert '[data-editor-theme="ultraviolet"]' in css.text
     assert '[data-editor-theme="cool-light"]' in css.text
 
-    javascript = client.get("/static/app.js")
+    javascript = client.get("/static/build/app.js")
+    editor = client.get("/static/build/editor.js")
+    formatters = client.get("/static/build/formatters.js")
+    repl = client.get("/static/build/repl.js")
     assert javascript.status_code == 200
+    assert editor.status_code == 200
+    assert formatters.status_code == 200
+    assert repl.status_code == 200
     assert "javascript" in javascript.headers["content-type"]
+    assert "javascript" in editor.headers["content-type"]
+    assert "javascript" in formatters.headers["content-type"]
+    assert "javascript" in repl.headers["content-type"]
     assert javascript.headers["cache-control"] == "no-cache"
-    assert "payload.session_id = sessionId" in javascript.text
-    assert "`/examples/${encodeURIComponent(key)}.rune`" in javascript.text
-    assert "0 and missing" not in javascript.text
-    assert "function factorial(n)" not in javascript.text
-    assert 'fetch("/reset"' in javascript.text
-    assert 'fetch("/validate"' in javascript.text
-    assert "validationController.abort()" in javascript.text
-    assert "mySeq !== validationRequestSeq" in javascript.text
-    assert "}, 300);" in javascript.text
-    assert "setSelectionRange(start, end)" in javascript.text
-    assert "function highlightRune(source)" in javascript.text
-    assert "updateEditorHighlighting()" in javascript.text
-    assert "syncEditorScroll" in javascript.text
-    assert 'localStorage.setItem("rune-editor-theme"' in javascript.text
-    assert 'localStorage.setItem("rune-page-theme"' in javascript.text
-    assert "payload.state" not in javascript.text
-    assert "inspectorStateEl.textContent = formatState(heldState)" in javascript.text
-    assert "heldEvents = result.events ?? []" in javascript.text
-    assert "heldStats = result.stats ?? null" in javascript.text
-    assert "Runtime events: ${stats.runtime_events}" in javascript.text
-    assert "Loop iterations: ${stats.loop_iterations}" in javascript.text
-    assert "formatRequestDetail(body.detail ?? body)" in javascript.text
-    assert "[object Object]" not in javascript.text
-    assert "sessionId" not in javascript.text.split("function formatState", 1)[1].split(
-        "function formatEvent", 1
-    )[0]
+    assert editor.headers["cache-control"] == "no-cache"
+    assert formatters.headers["cache-control"] == "no-cache"
+    assert repl.headers["cache-control"] == "no-cache"
+    assert 'import { startRuneRepl } from "./repl.js"' in javascript.text
+    assert "payload.session_id = sessionId" in repl.text
+    assert "`/examples/${encodeURIComponent(key)}.rune`" in repl.text
+    assert "0 and missing" not in repl.text
+    assert "function factorial(n)" not in repl.text
+    assert 'fetch("/reset"' in repl.text
+    assert 'fetch("/validate"' in repl.text
+    assert "validationController.abort()" in repl.text
+    assert "mySeq !== validationRequestSeq" in repl.text
+    assert "}, 300);" in repl.text
+    assert "setSelectionRange(start, end)" in repl.text
+    assert "function highlightRune(source)" in editor.text
+    assert "updateEditorHighlighting()" in repl.text
+    assert "syncEditorScroll" in repl.text
+    assert 'localStorage.setItem("rune-editor-theme"' in repl.text
+    assert 'localStorage.setItem("rune-page-theme"' in repl.text
+    assert "payload.state" not in repl.text
+    assert "inspectorStateEl.textContent = formatState(heldState)" in repl.text
+    assert "heldEvents = result.events ?? []" in repl.text
+    assert "heldStats = result.stats ?? null" in repl.text
+    assert "Runtime events: ${stats.runtime_events}" in formatters.text
+    assert "Loop iterations: ${stats.loop_iterations}" in formatters.text
+    assert "formatRequestDetail(body.detail ?? body)" in repl.text
+    assert "[object Object]" not in repl.text
+    assert "sessionId" not in formatters.text
 
 
 @pytest.mark.parametrize(

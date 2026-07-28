@@ -41,7 +41,8 @@ def test_project_declares_src_layout_packages_static_assets_and_console_command(
         "src"
     ]
     assert project["tool"]["setuptools"]["package-data"]["rune_web"] == [
-        "static/*"
+        "static/*",
+        "static/build/*",
     ]
     assert project["tool"]["pytest"]["ini_options"]["pythonpath"] == ["src"]
 

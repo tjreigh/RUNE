@@ -12,6 +12,14 @@ if [ ! -x .venv/bin/python ]; then
     exit 1
 fi
 
+if [ ! -x node_modules/.bin/tsc ]; then
+    echo "Frontend dependencies not found. Run scripts/setup.sh first." >&2
+    exit 1
+fi
+
+yarn typecheck
+yarn build
+
 if [ -d /opt/homebrew/opt/expat/lib ]; then
     export DYLD_LIBRARY_PATH="/opt/homebrew/opt/expat/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 fi

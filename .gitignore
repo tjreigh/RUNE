@@ -6,4 +6,6 @@ __pycache__/
 .coverage
 build/
 htmlcov/
+node_modules/
+src/rune_web/static/build/
 .DS_Store

@@ -28,6 +28,8 @@ Changed:
 - The FastAPI adapter and browser assets now ship in the installable
   `rune_web` package, with tests organized by core, CLI, web, packaging,
   deployment, and frontend boundaries.
+- Browser code is authored as strict TypeScript modules and built with the
+  Yarn-locked frontend toolchain before testing, packaging, or deployment.
 
 Behavior and migration notes:
 

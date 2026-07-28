@@ -233,20 +233,22 @@ browser requests can never turn the limits off themselves.
 
 ## Run it (locally)
 
-RUNE requires Python 3.12 or newer.
+RUNE requires Python 3.12 or newer. Building the web frontend from a source
+checkout also requires Node.js 22 or newer and Yarn 1.22.22.
 
 ```sh
 scripts/setup.sh
 .venv/bin/rune examples/full.rune
 ```
 
-The editable install created by `scripts/setup.sh` also exposes the public
-runtime API as `import rune` and supports `python -m rune`. Start the terminal
-REPL with `.venv/bin/rune --repl`. Complete single-line programs execute
-immediately. Incomplete expressions and typed blocks use the `...>` continuation
-prompt; submit a complete multiline draft with a blank line. Ctrl+C clears an
-active draft without changing committed variables or chaos state, and exits
-when the prompt is idle.
+`scripts/setup.sh` installs the locked frontend tools, type-checks and builds
+the TypeScript sources, and creates an editable Python installation. The
+editable install exposes the public runtime API as `import rune` and supports
+`python -m rune`. Start the terminal REPL with `.venv/bin/rune --repl`.
+Complete single-line programs execute immediately. Incomplete expressions and
+typed blocks use the `...>` continuation prompt; submit a complete multiline
+draft with a blank line. Ctrl+C clears an active draft without changing
+committed variables or chaos state, and exits when the prompt is idle.
 
 Launch the web REPL with:
 
@@ -255,6 +257,11 @@ scripts/run-web.sh
 ```
 
 Then open <http://127.0.0.1:8000/>.
+
+For frontend-only work, `yarn typecheck` checks the TypeScript sources,
+`yarn build` emits the browser modules, and `yarn test` builds and runs the
+Node behavior tests. Generated modules live under
+`src/rune_web/static/build/` and are deliberately ignored by Git.
 
 Expand **Show internals** beneath the output to inspect committed variables and
 the chaos threshold, runtime events from the latest evaluation, and execution
@@ -273,9 +280,11 @@ HTML report.
 
 The installable Python packages live under `src/`: `rune` contains the
 standard-library-only language core and CLI, while `rune_web` contains the
-FastAPI adapter, process isolation, sessions, and browser assets. Tests mirror
-those boundaries under `tests/core`, `tests/cli`, `tests/web`,
-`tests/packaging`, `tests/deployment`, and `tests/frontend`.
+FastAPI adapter, process isolation, sessions, and built browser assets.
+TypeScript browser sources live under `frontend/src`; their generated
+JavaScript is intentionally untracked. Tests mirror those boundaries under
+`tests/core`, `tests/cli`, `tests/web`, `tests/packaging`,
+`tests/deployment`, and `tests/frontend`.
 
 Language examples and documentation remain top-level project resources.
 Operational configuration is kept in `deploy`, and repeatable development and

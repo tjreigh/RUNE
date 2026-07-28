@@ -31,6 +31,24 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 1
 fi
 
+if ! command -v node >/dev/null 2>&1 || ! command -v yarn >/dev/null 2>&1; then
+    echo "Node.js and Yarn are required to build the web frontend." >&2
+    exit 1
+fi
+if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22)'; then
+    echo "Node.js 22 or newer is required to build the web frontend." >&2
+    exit 1
+fi
+if [ "$(yarn --version)" != "1.22.22" ]; then
+    echo "Yarn 1.22.22 is required to build the web frontend." >&2
+    exit 1
+fi
+
+echo "Installing and building frontend dependencies..."
+yarn install --frozen-lockfile --production=false
+yarn typecheck
+yarn build
+
 if [ ! -d .venv ]; then
     echo "Creating .venv..."
     "$PYTHON_BIN" -m venv .venv

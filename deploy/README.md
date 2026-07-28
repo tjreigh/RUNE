@@ -15,6 +15,7 @@ The checked-in production lock supports:
 
 - Debian or Ubuntu with systemd and cgroup v2
 - CPython 3.12 through 3.14
+- Node.js 22 or newer and Yarn 1.22.22 for the frontend build
 - Linux x86_64
 - Caddy 2.10 or newer
 
@@ -23,15 +24,21 @@ Check before migrating:
 ```sh
 uname -m
 /usr/bin/python3 --version
+node --version
+yarn --version
 caddy version
 systemd --version
 stat -fc %T /sys/fs/cgroup
 ```
 
-`uname -m` must report `x86_64`, Python must be 3.12–3.14, and the cgroup filesystem
-should report `cgroup2fs`. Regenerate and review
-`requirements/production.txt` before using another architecture or Python
-minor version.
+`uname -m` must report `x86_64`, Python must be 3.12–3.14, Node must be at
+least 22, Yarn must report `1.22.22`, and the cgroup filesystem should report
+`cgroup2fs`. Regenerate and review `requirements/production.txt` before using
+another architecture or Python minor version.
+
+The installed deployment helper expects `node` on its fixed system path and
+Yarn at `/usr/bin/yarn`. Set `RUNE_YARN_BIN` when installing the reviewed
+helper only if Yarn has another fixed, root-controlled absolute path.
 
 ## Security model
 
@@ -239,7 +246,8 @@ The deployment command:
 
 1. fetches and exports the commit as `rune-deploy`;
 2. installs only hash-locked binary dependencies;
-3. builds and imports the application as `rune-deploy`;
+3. installs the frozen Yarn lock, type-checks and builds the frontend, then
+   builds and imports the Python application as `rune-deploy`;
 4. rejects symlinks and special filesystem objects;
 5. promotes a root-owned, read-only release;
 6. restarts the systemd service;

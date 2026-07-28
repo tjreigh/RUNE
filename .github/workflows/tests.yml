@@ -29,6 +29,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+
+      - name: Build frontend
+        run: |
+          corepack enable
+          yarn install --frozen-lockfile
+          yarn typecheck
+          yarn build
+
       - name: Install project
         run: python -m pip install --editable ".[dev,web]"
 

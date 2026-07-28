@@ -32,6 +32,7 @@ from .sessions import (
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = PACKAGE_DIR / "static"
+FRONTEND_ENTRYPOINT = STATIC_DIR / "build" / "app.js"
 SOURCE_EXAMPLES_DIR = PACKAGE_DIR.parents[1] / "examples"
 EXAMPLES_DIR = Path(
     os.environ.get(
@@ -307,6 +308,11 @@ def create_app(
     validator=worker.validate_source,
     session_store: SessionStore | None = None,
 ) -> FastAPI:
+    if not FRONTEND_ENTRYPOINT.is_file():
+        raise RuntimeError(
+            "Web frontend has not been built; run "
+            "'yarn install --frozen-lockfile && yarn build'"
+        )
     app = FastAPI()
     app.mount(
         "/static",

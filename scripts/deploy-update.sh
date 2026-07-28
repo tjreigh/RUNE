@@ -26,6 +26,7 @@ DEPLOY_USER="${RUNE_DEPLOY_USER:-rune-deploy}"
 SERVICE_USER="${RUNE_SERVICE_USER:-rune}"
 SERVICE_NAME="${RUNE_SERVICE_NAME:-rune}"
 PYTHON_BIN="${RUNE_PYTHON_BIN:-/usr/bin/python3}"
+YARN_BIN="${RUNE_YARN_BIN:-/usr/bin/yarn}"
 REMOTE="${RUNE_REMOTE:-origin}"
 DEPLOY_REF="${1:-}"
 STAGING_DIR=""
@@ -52,7 +53,8 @@ case "$DEPLOY_USER:$SERVICE_USER:$SERVICE_NAME:$REMOTE" in
         fail "account, service, or remote name contains unsupported characters"
         ;;
 esac
-for path in "$SOURCE_DIR" "$BUILD_DIR" "$RELEASES_DIR" "$CURRENT_LINK" "$PYTHON_BIN"; do
+for path in "$SOURCE_DIR" "$BUILD_DIR" "$RELEASES_DIR" "$CURRENT_LINK" \
+    "$PYTHON_BIN" "$YARN_BIN"; do
     case "$path" in
         /*) ;;
         *) fail "deployment paths must be absolute" ;;
@@ -74,7 +76,7 @@ if [ "$(stat -c '%u:%a' "$SCRIPT_PATH")" != "0:755" ]; then
 fi
 
 for command in git runuser systemctl find readlink stat mktemp mv ln chown chmod \
-    dirname pgrep pkill uname; do
+    dirname node pgrep pkill rm uname; do
     command -v "$command" >/dev/null 2>&1 ||
         fail "required command not found: $command"
 done
@@ -82,6 +84,11 @@ for account in "$DEPLOY_USER" "$SERVICE_USER"; do
     id "$account" >/dev/null 2>&1 || fail "account does not exist: $account"
 done
 [ -x "$PYTHON_BIN" ] || fail "Python executable not found: $PYTHON_BIN"
+[ -x "$YARN_BIN" ] || fail "Yarn executable not found: $YARN_BIN"
+[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ] ||
+    fail "the frontend build requires Node.js 22 or newer"
+[ "$("$YARN_BIN" --version)" = "1.22.22" ] ||
+    fail "the frontend build requires Yarn 1.22.22"
 [ "$(uname -m)" = "x86_64" ] ||
     fail "the checked-in production lock supports Linux x86_64 only"
 "$PYTHON_BIN" -c 'import sys; raise SystemExit(
@@ -168,6 +175,16 @@ run_as_deploy tar -xf "$ARCHIVE" -C "$STAGING_RELEASE"
 run_as_deploy rm -f "$ARCHIVE"
 
 echo "Building an isolated release as $DEPLOY_USER ..."
+run_as_deploy "$YARN_BIN" --cwd "$STAGING_RELEASE" install \
+    --frozen-lockfile \
+    --ignore-scripts \
+    --non-interactive \
+    --production=false \
+    --cache-folder "$STAGING_DIR/yarn-cache"
+run_as_deploy "$YARN_BIN" --cwd "$STAGING_RELEASE" typecheck
+run_as_deploy "$YARN_BIN" --cwd "$STAGING_RELEASE" build
+run_as_deploy rm -rf -- "$STAGING_RELEASE/node_modules" \
+    "$STAGING_DIR/yarn-cache"
 run_as_deploy "$PYTHON_BIN" -m venv --copies "$STAGING_RELEASE/.venv"
 # CPython may add lib64 -> lib even with --copies; it is unnecessary here and
 # immutable releases intentionally contain no symlinks.

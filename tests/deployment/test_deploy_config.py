@@ -93,6 +93,13 @@ def test_deployer_builds_locked_and_promotes_immutable_releases():
     updater = _read("scripts/deploy-update.sh")
 
     for required in (
+        'YARN_BIN="${RUNE_YARN_BIN:-/usr/bin/yarn}"',
+        "--frozen-lockfile",
+        "--ignore-scripts",
+        "--production=false",
+        "typecheck",
+        '"$YARN_BIN" --cwd "$STAGING_RELEASE" build',
+        '"$STAGING_RELEASE/node_modules"',
         "--require-hashes",
         "--only-binary=:all:",
         "--no-deps",
