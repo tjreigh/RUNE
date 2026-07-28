@@ -6,7 +6,12 @@ import pytest
 
 from rune_web import worker as rune_worker
 from rune_web.isolation import IsolationStatus
-from rune_web.worker import _bounded_dict, evaluate_isolated
+from rune_web.worker import (
+    _bounded_dict,
+    _bounded_trace_dict,
+    evaluate_isolated,
+    trace_isolated,
+)
 
 
 def _hanging_evaluator(source, state=None, limits=None):
@@ -14,6 +19,24 @@ def _hanging_evaluator(source, state=None, limits=None):
 
 
 def _memory_error_evaluator(source, state=None, limits=None):
+    raise MemoryError
+
+
+def _hanging_trace_evaluator(
+    source,
+    state=None,
+    limits=None,
+    trace_limits=None,
+):
+    time.sleep(10)
+
+
+def _memory_error_trace_evaluator(
+    source,
+    state=None,
+    limits=None,
+    trace_limits=None,
+):
     raise MemoryError
 
 
@@ -31,6 +54,16 @@ def _normal_result_dict():
         "ok": True, "values": [4], "diagnostics": [], "events": [],
         "state": {"chaos_threshold": 1},
         "stats": {"steps": 3, "peak_recursion_depth": 2, "output_values": 1},
+    }
+
+
+def _normal_trace_dict():
+    return {
+        "ok": True,
+        "artifact_available": True,
+        "diagnostics": [],
+        "base_state": {"chaos_threshold": 1},
+        "frames": [],
     }
 
 
@@ -223,6 +256,21 @@ def test_bounded_dict_flags_huge_integer_that_trips_json_conversion_limit():
     assert bounded["stats"] == huge_int_result["stats"]
 
 
+def test_bounded_trace_dict_replaces_an_oversized_worker_envelope():
+    oversized = _normal_trace_dict()
+    oversized["frames"] = [{"changes": {"output_values": ["x" * 100_000]}}]
+
+    bounded = _bounded_trace_dict(oversized)
+
+    assert bounded["ok"] is False
+    assert bounded["artifact_available"] is False
+    assert bounded["diagnostics"][0]["message"] == (
+        "Trace result too large to serialize"
+    )
+    assert bounded["base_state"] is None
+    assert bounded["frames"] == []
+
+
 def test_evaluate_isolated_ok_translation():
     outcome = evaluate_isolated("2+2", {"chaos_threshold": 1})
     assert outcome.status_code == 200
@@ -238,6 +286,22 @@ def test_evaluate_isolated_restores_variable_state_in_worker():
     assert outcome.status_code == 200
     assert outcome.body["ok"] is True
     assert outcome.body["values"] == [42]
+
+
+def test_trace_isolated_records_from_original_state_without_successor_state():
+    initial_state = {
+        "chaos_threshold": 1,
+        "variables": {"answer": 41},
+    }
+
+    outcome = trace_isolated("answer = 42\nanswer", initial_state)
+
+    assert outcome.status_code == 200
+    assert outcome.body["ok"] is True
+    assert outcome.body["artifact_available"] is True
+    assert outcome.body["base_state"] == initial_state
+    assert outcome.body["frames"][-1]["status"] == "completed"
+    assert "state" not in outcome.body
 
 
 def test_worker_always_supplies_finite_interpreter_limits(monkeypatch, tmp_path):
@@ -269,6 +333,39 @@ def test_worker_always_supplies_finite_interpreter_limits(monkeypatch, tmp_path)
             observed["limits"].max_integer_bits,
             observed["limits"].max_events,
         )
+    )
+
+
+def test_trace_worker_supplies_finite_execution_and_trace_limits(
+    monkeypatch,
+    tmp_path,
+):
+    observed = {}
+
+    def evaluator(
+        source,
+        state=None,
+        limits=None,
+        trace_limits=None,
+    ):
+        observed["limits"] = limits
+        observed["trace_limits"] = trace_limits
+        return SimpleNamespace(to_dict=_normal_trace_dict)
+
+    monkeypatch.setattr(rune_worker, "_apply_worker_resource_limits", lambda: None)
+    result_path = tmp_path / "trace.json"
+
+    rune_worker._trace_worker_entrypoint(
+        result_path,
+        "2 + 2",
+        {"chaos_threshold": 1},
+        evaluator=evaluator,
+    )
+
+    assert result_path.exists()
+    assert observed["limits"].is_unbounded is False
+    assert observed["trace_limits"].max_serialized_bytes == (
+        rune_worker.MAX_TRACE_ARTIFACT_BYTES
     )
 
 
@@ -342,8 +439,42 @@ def test_evaluate_isolated_memory_error_becomes_limit_outcome():
     assert outcome.body["state"] == {"chaos_threshold": 7}
 
 
+def test_trace_isolated_timeout_and_memory_failures_are_trace_envelopes():
+    timed_out = trace_isolated(
+        "2+2",
+        {"chaos_threshold": 1},
+        timeout=0.3,
+        worker_evaluator=_hanging_trace_evaluator,
+    )
+    memory_limited = trace_isolated(
+        "2+2",
+        {"chaos_threshold": 1},
+        worker_evaluator=_memory_error_trace_evaluator,
+    )
+
+    assert timed_out.status_code == 200
+    assert timed_out.body["artifact_available"] is False
+    assert timed_out.body["diagnostics"][0]["message"] == (
+        "Tracing wall-clock timeout exceeded"
+    )
+    assert memory_limited.status_code == 200
+    assert memory_limited.body["artifact_available"] is False
+    assert memory_limited.body["diagnostics"][0]["message"] == (
+        "Tracing memory limit exceeded"
+    )
+
+
 def _raising_evaluator(source, state=None, limits=None):
     raise RuntimeError("boom")
+
+
+def _raising_trace_evaluator(
+    source,
+    state=None,
+    limits=None,
+    trace_limits=None,
+):
+    raise RuntimeError("trace boom")
 
 
 def test_evaluate_isolated_crash_translation_end_to_end():
@@ -372,10 +503,29 @@ def test_evaluate_isolated_isolation_layer_failure_returns_generic_500():
     original = rune_worker.run_isolated
     rune_worker.run_isolated = _fake_run_isolated
     try:
-        outcome = evaluate_isolated("2+2", {"chaos_threshold": 1})
+        evaluation = evaluate_isolated("2+2", {"chaos_threshold": 1})
+        tracing = trace_isolated("2+2", {"chaos_threshold": 1})
     finally:
         rune_worker.run_isolated = original
 
+    assert evaluation.status_code == 500
+    assert "infra exploded" not in str(evaluation.body)
+    assert evaluation.body["diagnostics"][0]["kind"] == "internal"
+    assert tracing.status_code == 500
+    assert "infra exploded" not in str(tracing.body)
+    assert tracing.body["diagnostics"][0]["kind"] == "internal"
+
+
+def test_trace_isolated_crash_translation_hides_internal_details():
+    outcome = trace_isolated(
+        "2+2",
+        {"chaos_threshold": 1},
+        worker_evaluator=_raising_trace_evaluator,
+    )
+
     assert outcome.status_code == 500
-    assert "infra exploded" not in str(outcome.body)
-    assert outcome.body["diagnostics"][0]["kind"] == "internal"
+    assert outcome.body["artifact_available"] is False
+    assert outcome.body["diagnostics"][0]["message"] == (
+        "Tracing process terminated unexpectedly"
+    )
+    assert "trace boom" not in str(outcome.body)

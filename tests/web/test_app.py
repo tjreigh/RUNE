@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 
 import pytest
 
@@ -282,6 +283,163 @@ def test_normal_evaluation():
     assert len(body["session_id"]) >= 32
 
 
+def test_debug_creates_a_session_but_never_commits_traced_state():
+    store = SessionStore()
+    client = TestClient(create_app(session_store=store))
+
+    traced = client.post(
+        "/debug",
+        json={"source": "answer = 42\nanswer"},
+    )
+
+    assert traced.status_code == 200
+    body = traced.json()
+    assert body["ok"] is True
+    assert body["artifact_available"] is True
+    assert body["base_state"] == {"chaos_threshold": 1}
+    assert body["frames"][-1]["status"] == "completed"
+    session = store.resolve(body["session_id"])
+    assert store.snapshot(session) == {"chaos_threshold": 1}
+
+    later = client.post(
+        "/evaluate",
+        json={"source": "answer", "session_id": body["session_id"]},
+    )
+    assert later.json()["ok"] is False
+    assert later.json()["diagnostics"][0]["message"] == (
+        "Undefined variable 'answer'"
+    )
+
+
+def test_debug_uses_existing_committed_session_state_without_replacing_it():
+    store = SessionStore()
+    client = TestClient(create_app(session_store=store))
+    created = client.post(
+        "/evaluate",
+        json={"source": "answer = 41"},
+    ).json()
+
+    traced = client.post(
+        "/debug",
+        json={
+            "source": "answer = 42\nanswer",
+            "session_id": created["session_id"],
+        },
+    ).json()
+
+    assert traced["base_state"]["variables"] == {"answer": 41}
+    session = store.resolve(created["session_id"])
+    assert store.snapshot(session)["variables"] == {"answer": 41}
+
+
+def test_debug_rejects_a_result_if_reset_superseded_its_session():
+    store = SessionStore()
+    session_id, _session = store.create()
+
+    def resetting_debugger(source, state_dict, timeout=2.0):
+        store.reset(session_id)
+        return WorkerOutcome(200, {
+            "ok": True,
+            "artifact_available": True,
+            "diagnostics": [],
+            "base_state": state_dict,
+            "frames": [],
+        })
+
+    client = TestClient(create_app(
+        session_store=store,
+        debugger=resetting_debugger,
+    ))
+    response = client.post(
+        "/debug",
+        json={"source": "1", "session_id": session_id},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "session was reset during debugging"
+
+
+def test_debug_and_evaluation_serialize_on_the_same_session_lock():
+    store = SessionStore()
+    session_id, session = store.create()
+    store.commit(
+        session_id,
+        session,
+        {"chaos_threshold": 1, "variables": {"answer": 1}},
+    )
+    debug_started = threading.Event()
+    release_debug = threading.Event()
+    evaluation_started = threading.Event()
+
+    def blocking_debugger(source, state_dict, timeout=2.0):
+        debug_started.set()
+        assert release_debug.wait(2)
+        return WorkerOutcome(200, {
+            "ok": True,
+            "artifact_available": True,
+            "diagnostics": [],
+            "base_state": state_dict,
+            "frames": [],
+        })
+
+    def recording_evaluator(source, state_dict, timeout=2.0):
+        evaluation_started.set()
+        return WorkerOutcome(200, {
+            "ok": True,
+            "values": [],
+            "diagnostics": [],
+            "events": [],
+            "state": {
+                "chaos_threshold": 1,
+                "variables": {"answer": 2},
+            },
+            "stats": None,
+        })
+
+    app = create_app(
+        session_store=store,
+        debugger=blocking_debugger,
+        evaluator=recording_evaluator,
+    )
+    debug_client = TestClient(app)
+    evaluation_client = TestClient(app)
+    responses = {}
+
+    debug_thread = threading.Thread(
+        target=lambda: responses.setdefault(
+            "debug",
+            debug_client.post(
+                "/debug",
+                json={"source": "answer", "session_id": session_id},
+            ),
+        )
+    )
+    debug_thread.start()
+    assert debug_started.wait(2)
+
+    evaluation_thread = threading.Thread(
+        target=lambda: responses.setdefault(
+            "evaluate",
+            evaluation_client.post(
+                "/evaluate",
+                json={"source": "answer = 2", "session_id": session_id},
+            ),
+        )
+    )
+    evaluation_thread.start()
+    assert not evaluation_started.wait(0.1)
+
+    release_debug.set()
+    debug_thread.join(2)
+    evaluation_thread.join(2)
+
+    assert not debug_thread.is_alive()
+    assert not evaluation_thread.is_alive()
+    assert responses["debug"].status_code == 200
+    assert responses["evaluate"].status_code == 200
+    assert store.snapshot(session)["variables"] == {"answer": 2}
+
+
 def test_lex_error_returns_200_with_diagnostic():
     client = TestClient(create_app())
     response = client.post("/evaluate", json={"source": "$"})
@@ -361,9 +519,31 @@ def test_client_supplied_limits_field_is_rejected():
     assert response.status_code == 422
 
 
+def test_debug_accepts_only_source_and_optional_session_id():
+    client = TestClient(create_app())
+
+    limits = client.post(
+        "/debug",
+        json={"source": "1", "limits": {"max_frames": 1}},
+    )
+    state = client.post(
+        "/debug",
+        json={"source": "1", "state": {"chaos_threshold": 1}},
+    )
+
+    assert limits.status_code == 422
+    assert state.status_code == 409
+
+
 def test_oversized_source_returns_413():
     client = TestClient(create_app(max_source_length=10))
     response = client.post("/evaluate", json={"source": "1" * 1000})
+    assert response.status_code == 413
+
+
+def test_oversized_debug_source_returns_413():
+    client = TestClient(create_app(max_source_length=10))
+    response = client.post("/debug", json={"source": "1" * 1000})
     assert response.status_code == 413
 
 
@@ -453,7 +633,9 @@ def test_concurrency_cap_returns_503_then_recovers():
     assert acquired
     try:
         response = client.post("/evaluate", json={"source": "2+2"})
+        debug = client.post("/debug", json={"source": "2+2"})
         assert response.status_code == 503
+        assert debug.status_code == 503
     finally:
         app.state.concurrency_semaphore.release()
 
@@ -481,6 +663,19 @@ def test_rate_limit_returns_429_on_second_request():
     second = client.post("/evaluate", json={"source": "2+2"})
     assert second.status_code == 429
     assert second.headers["retry-after"] == "60"
+
+
+def test_debug_and_evaluate_share_execution_rate_limit():
+    client = TestClient(create_app(
+        rate_limit_max=1,
+        rate_limit_window=60.0,
+    ))
+
+    first = client.post("/debug", json={"source": "1"})
+    second = client.post("/evaluate", json={"source": "1"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
 
 
 def test_global_evaluation_rate_limit_bounds_all_clients():
@@ -519,12 +714,15 @@ def test_new_session_rate_limit_does_not_block_existing_session():
     assert rejected.headers["retry-after"] == "60"
     assert store.session_count == 1
 
+    debug_rejected = client.post("/debug", json={"source": "answer"})
+    assert debug_rejected.status_code == 429
+
     existing = client.post(
-        "/evaluate",
+        "/debug",
         json={"source": "answer", "session_id": session_id},
     )
     assert existing.status_code == 200
-    assert existing.json()["values"] == [42]
+    assert existing.json()["base_state"]["variables"] == {"answer": 42}
 
 
 def test_rate_limiter_hard_caps_unique_client_buckets():
@@ -592,6 +790,34 @@ def _fake_crash_evaluator(source, state_dict, timeout=2.0):
     })
 
 
+def _fake_timeout_debugger(source, state_dict, timeout=2.0):
+    return WorkerOutcome(200, {
+        "ok": False,
+        "artifact_available": False,
+        "diagnostics": [{
+            "kind": "limit",
+            "message": "Tracing wall-clock timeout exceeded",
+            "span": None,
+        }],
+        "base_state": None,
+        "frames": [],
+    })
+
+
+def _fake_crash_debugger(source, state_dict, timeout=2.0):
+    return WorkerOutcome(500, {
+        "ok": False,
+        "artifact_available": False,
+        "diagnostics": [{
+            "kind": "internal",
+            "message": "Tracing process terminated unexpectedly",
+            "span": None,
+        }],
+        "base_state": None,
+        "frames": [],
+    })
+
+
 def test_endpoint_maps_timeout_outcome_to_200():
     client = TestClient(create_app(evaluator=_fake_timeout_evaluator))
     response = client.post("/evaluate", json={"source": "2+2"})
@@ -606,6 +832,21 @@ def test_endpoint_maps_crash_outcome_to_500():
     assert response.status_code == 500
     assert response.json()["diagnostics"][0]["kind"] == "internal"
     assert "session_id" in response.json()
+
+
+def test_debug_endpoint_preserves_timeout_and_crash_outcome_statuses():
+    timeout_client = TestClient(create_app(debugger=_fake_timeout_debugger))
+    crash_client = TestClient(create_app(debugger=_fake_crash_debugger))
+
+    timed_out = timeout_client.post("/debug", json={"source": "1"})
+    crashed = crash_client.post("/debug", json={"source": "1"})
+
+    assert timed_out.status_code == 200
+    assert timed_out.json()["artifact_available"] is False
+    assert "session_id" in timed_out.json()
+    assert crashed.status_code == 500
+    assert crashed.json()["artifact_available"] is False
+    assert "session_id" in crashed.json()
 
 
 def test_huge_integer_source_returns_limit_diagnostic_not_500():
@@ -823,6 +1064,13 @@ def test_unknown_or_expired_session_id_is_not_accepted():
     })
     assert response.status_code == 404
     assert response.json()["detail"] == "session not found or expired"
+
+    debug = client.post("/debug", json={
+        "source": "1",
+        "session_id": "x" * 43,
+    })
+    assert debug.status_code == 404
+    assert debug.json()["detail"] == "session not found or expired"
 
 
 def test_reset_deletes_server_side_session_state():

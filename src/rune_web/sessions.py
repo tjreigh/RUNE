@@ -152,6 +152,16 @@ class SessionStore:
             session.expires_at = now + self.ttl_seconds
             return True
 
+    def is_current(self, token: str, session: Session) -> bool:
+        """Whether a live request still belongs to the stored session.
+
+        Reset may remove a session while an isolated worker is running. A
+        non-committing operation uses this identity check before returning so
+        it cannot publish a result derived from a superseded session.
+        """
+        with self._lock:
+            return self._sessions.get(token) is session
+
     def reset(self, token: str) -> None:
         with self._lock:
             if self._sessions.pop(token, None) is None:

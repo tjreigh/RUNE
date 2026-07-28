@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rune.diagnostics import DiagnosticKind, RuneError
-from rune.limits import ExecutionLimits
-from rune.runtime import compile_source, evaluate
+from rune.limits import ExecutionLimits, TraceLimits
+from rune.runtime import compile_source, evaluate, trace_evaluate
 from rune.runtime_state import RuntimeState
 
 from .isolation import IsolationStatus, run_isolated
@@ -18,6 +18,9 @@ from .isolation import IsolationStatus, run_isolated
 logger = logging.getLogger(__name__)
 
 MAX_RESPONSE_BYTES = 64 * 1024
+RESPONSE_ENVELOPE_RESERVE_BYTES = 1024
+MAX_WORKER_BODY_BYTES = MAX_RESPONSE_BYTES - RESPONSE_ENVELOPE_RESERVE_BYTES
+MAX_TRACE_ARTIFACT_BYTES = 48 * 1024
 MAX_WORKER_ADDRESS_SPACE_BYTES = 192 * 1024 * 1024
 MAX_WORKER_CPU_SECONDS = 3
 MAX_WORKER_FILE_BYTES = 1_000_000
@@ -77,9 +80,17 @@ def _prepare_spawned_worker(result_path: Path) -> None:
     os.chdir(result_path.parent)
 
 
+def _json_text(obj) -> str:
+    return json.dumps(
+        obj,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 def _atomic_write_json(path: Path, obj) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj))
+    tmp.write_text(_json_text(obj))
     tmp.replace(path)
 
 
@@ -113,13 +124,44 @@ def _memory_limit_envelope(state_dict: dict) -> dict:
     }
 
 
+def _trace_failure_envelope(kind: DiagnosticKind, message: str) -> dict:
+    return {
+        "ok": False,
+        "artifact_available": False,
+        "diagnostics": [{
+            "kind": kind.value,
+            "message": message,
+            "span": None,
+        }],
+        "base_state": None,
+        "frames": [],
+    }
+
+
+def _bounded_trace_dict(result_dict: dict) -> dict:
+    """Bound the worker envelope independently from core artifact accounting."""
+    try:
+        text = _json_text(result_dict)
+    except (TypeError, ValueError, OverflowError):
+        return _trace_failure_envelope(
+            DiagnosticKind.LIMIT,
+            "Trace result too large to serialize",
+        )
+    if len(text.encode("utf-8")) > MAX_WORKER_BODY_BYTES:
+        return _trace_failure_envelope(
+            DiagnosticKind.LIMIT,
+            "Trace result too large to serialize",
+        )
+    return result_dict
+
+
 def _bounded_dict(result_dict: dict, state_dict: dict) -> dict:
     """Keep serialization bounded even if a future core invariant regresses."""
     try:
-        text = json.dumps(result_dict)
+        text = _json_text(result_dict)
     except (ValueError, OverflowError):
         return _oversized_envelope(state_dict, result_dict.get("stats"))
-    if len(text.encode("utf-8")) > MAX_RESPONSE_BYTES:
+    if len(text.encode("utf-8")) > MAX_WORKER_BODY_BYTES:
         return _oversized_envelope(state_dict, result_dict.get("stats"))
     return result_dict
 
@@ -152,6 +194,49 @@ def _worker_entrypoint(result_path, source, state_dict, evaluator=evaluate):
         # Exit non-zero deliberately (SystemExit, not a re-raised
         # traceback) so the process's own exit status honestly reflects
         # the failure, matching run_isolated()'s exitcode == 0 gate.
+        raise SystemExit(1)
+
+
+def _trace_worker_entrypoint(
+    result_path,
+    source,
+    state_dict,
+    evaluator=trace_evaluate,
+):
+    """Record one bounded trace in a fresh disposable worker."""
+    try:
+        _apply_worker_resource_limits()
+        _prepare_spawned_worker(result_path)
+        state = RuntimeState(
+            chaos_threshold=state_dict.get("chaos_threshold", 1),
+            variables=state_dict.get("variables", {}),
+        )
+        result = evaluator(
+            source,
+            state=state,
+            limits=ExecutionLimits(),
+            trace_limits=TraceLimits(
+                max_serialized_bytes=MAX_TRACE_ARTIFACT_BYTES,
+            ),
+        )
+        _atomic_write_json(
+            result_path,
+            _bounded_trace_dict(result.to_dict()),
+        )
+    except MemoryError:
+        try:
+            _atomic_write_json(
+                result_path,
+                _trace_failure_envelope(
+                    DiagnosticKind.LIMIT,
+                    "Tracing memory limit exceeded",
+                ),
+            )
+        except Exception:
+            logger.exception("RUNE trace worker could not report its memory limit")
+            raise SystemExit(1)
+    except Exception:
+        logger.exception("RUNE trace worker crashed")
         raise SystemExit(1)
 
 
@@ -212,6 +297,20 @@ def _crashed_envelope(state_dict: dict) -> dict:
     }
 
 
+def _trace_timeout_envelope() -> dict:
+    return _trace_failure_envelope(
+        DiagnosticKind.LIMIT,
+        "Tracing wall-clock timeout exceeded",
+    )
+
+
+def _trace_crashed_envelope() -> dict:
+    return _trace_failure_envelope(
+        DiagnosticKind.INTERNAL,
+        "Tracing process terminated unexpectedly",
+    )
+
+
 def evaluate_isolated(
     source: str,
     state_dict: dict,
@@ -241,3 +340,27 @@ def evaluate_isolated(
     if result.status is IsolationStatus.TIMEOUT:
         return WorkerOutcome(200, _timeout_envelope(state_dict))  # rejected workload
     return WorkerOutcome(500, _crashed_envelope(state_dict))       # infra fault
+
+
+def trace_isolated(
+    source: str,
+    state_dict: dict,
+    timeout: float = 2.0,
+    worker_evaluator=trace_evaluate,
+) -> WorkerOutcome:
+    """Record a bounded trace in one disposable, hard-deadline worker."""
+    try:
+        result = run_isolated(
+            _trace_worker_entrypoint,
+            args=(source, state_dict, worker_evaluator),
+            timeout=timeout,
+        )
+    except Exception:
+        logger.exception("Trace isolation infrastructure failure")
+        return WorkerOutcome(500, _trace_crashed_envelope())
+
+    if result.status is IsolationStatus.OK:
+        return WorkerOutcome(200, result.value)
+    if result.status is IsolationStatus.TIMEOUT:
+        return WorkerOutcome(200, _trace_timeout_envelope())
+    return WorkerOutcome(500, _trace_crashed_envelope())

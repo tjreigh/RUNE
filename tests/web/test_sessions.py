@@ -119,6 +119,15 @@ def test_reset_prevents_an_in_flight_session_reference_from_committing():
         store.resolve(token)
 
 
+def test_reset_marks_an_in_flight_session_reference_as_not_current():
+    store = SessionStore(token_factory=_tokens("a" * 43))
+    token, session = store.create()
+
+    assert store.is_current(token, session)
+    store.reset(token)
+    assert not store.is_current(token, session)
+
+
 def test_variable_count_and_serialized_size_are_bounded():
     store = SessionStore(
         max_variables=1,

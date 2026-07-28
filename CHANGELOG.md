@@ -3,6 +3,40 @@
 RUNE is pre-1.0. Minor releases may change the language; breaking changes get
 migration notes here.
 
+## v0.9.0 — Unreleased
+
+Added:
+
+- Scoped `chaos expression` / `end chaos` blocks with dynamically visible
+  thresholds and guaranteed restoration across normal completion, control
+  flow, runtime failures, and execution limits.
+- A bounded, non-committing trace runtime with statement checkpoints, state
+  deltas, dynamic function and loop context, output and event changes,
+  execution statistics, remaining budgets, and explicit `return`, `break`,
+  and `continue` destinations.
+- Exact full-artifact trace limits, a typed public trace schema, normalized
+  diagnostics referenced by error frames, and explicit artifact availability.
+- An isolated `POST /debug` backend that records a trace from a normal web
+  session snapshot without committing the traced program's final state.
+
+Changed:
+
+- Runtime control flow now uses one real dynamic execution stack shared by
+  language semantics and debugger observation.
+- Run and Debug share source, request, rate, concurrency, session-lock,
+  disposable-worker, timeout, process-resource, and response-size safeguards.
+- The FastAPI adapter and browser assets now ship in the installable
+  `rune_web` package, with tests organized by core, CLI, web, packaging,
+  deployment, and frontend boundaries.
+
+Behavior and migration notes:
+
+- `chaos` is now reserved for scoped chaos blocks.
+- Debugging may create or reuse an ordinary browser session, but a debug run
+  never commits state. Reset invalidates an in-flight debug result.
+- Trace diagnostics are stored once at the artifact level; error frames refer
+  to them by `diagnostic_index`.
+
 ## v0.8.0 — 2026-07-25
 
 Added:
@@ -26,6 +60,7 @@ Migration notes:
 - `#` now starts a comment outside strings instead of producing a lex error.
 - Functions remain source-local. In the terminal REPL, submit a declaration
   and its calls together as one multiline draft.
+
 ## v0.7.0 — 2026-07-23
 
 - Added top-level functions, calls, explicit returns, recursion, declaration

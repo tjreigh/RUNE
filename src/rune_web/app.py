@@ -3,9 +3,10 @@
 Run locally with:
     .venv/bin/python -m uvicorn rune_web.app:app --port 8000
 
-This module never reaches into the core's internals. Core-facing evaluation
-and validation both go through the worker adapter: evaluation uses a disposable
-subprocess, while bounded compile-only validation runs in-process.
+This module never reaches into the core's internals. Core-facing evaluation,
+tracing, and validation go through the worker adapter: evaluation and tracing
+use disposable subprocesses, while bounded compile-only validation runs
+in-process.
 """
 
 import os
@@ -185,13 +186,14 @@ class FixedWindowRateLimiter:
             return True
 
 
-class EvaluateRateLimitMiddleware:
+class ExecutionRateLimitMiddleware:
     """Apply per-client and aggregate endpoint limits before body parsing.
 
     Malformed and oversized requests therefore consume their endpoint budget
-    rather than bypassing admission control. Reset requests consume the
-    evaluation client budget. Per-client rejection happens first so one
-    address cannot consume an entire aggregate budget by itself.
+    rather than bypassing admission control. Debug shares evaluation capacity
+    because both execute untrusted code; Reset consumes the same client budget.
+    Per-client rejection happens first so one address cannot consume an entire
+    aggregate budget by itself.
 
     The client key comes from the ASGI scope populated by Uvicorn. Locally that
     is the direct peer address; deployment must only trust proxy headers from
@@ -217,13 +219,13 @@ class EvaluateRateLimitMiddleware:
             path = scope.get("path")
             client = scope.get("client")
             client_key = client[0] if client else "unknown-client"
-            if path in {"/evaluate", "/reset"}:
+            if path in {"/evaluate", "/debug", "/reset"}:
                 if not self.client_limiter.allow(client_key):
                     return await _send_429(
                         send, self.client_limiter.window_seconds
                     )
                 if (
-                    path == "/evaluate"
+                    path in {"/evaluate", "/debug"}
                     and not self.global_limiter.allow(
                         GLOBAL_EVALUATION_LIMIT_KEY
                     )
@@ -255,6 +257,12 @@ class RevalidatingStaticFiles(StaticFiles):
 
 
 class EvaluateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str
+    session_id: str | None = Field(default=None, min_length=32, max_length=128)
+
+
+class DebugRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str
     session_id: str | None = Field(default=None, min_length=32, max_length=128)
@@ -295,6 +303,7 @@ def create_app(
     max_request_bytes: int = 16_384,
     eval_timeout: float = 2.0,
     evaluator=worker.evaluate_isolated,
+    debugger=worker.trace_isolated,
     validator=worker.validate_source,
     session_store: SessionStore | None = None,
 ) -> FastAPI:
@@ -331,9 +340,9 @@ def create_app(
     )
     app.add_middleware(MaxBodySizeMiddleware, max_bytes=max_request_bytes)
     # Added after MaxBodySizeMiddleware so Starlette makes it the outer layer:
-    # /evaluate and /validate requests count before body/schema validation.
+    # Execution and validation requests count before body/schema validation.
     app.add_middleware(
-        EvaluateRateLimitMiddleware,
+        ExecutionRateLimitMiddleware,
         client_limiter=rate_limiter,
         global_limiter=global_rate_limiter,
         validation_client_limiter=validation_rate_limiter,
@@ -350,6 +359,7 @@ def create_app(
     app.state.validation_global_rate_limiter = validation_global_rate_limiter
     app.state.max_source_length = max_source_length
     app.state.eval_timeout = eval_timeout
+    app.state.debugger = debugger
     app.state.session_store = session_store or SessionStore()
 
     @app.exception_handler(RequestValidationError)
@@ -359,7 +369,7 @@ def create_app(
             and tuple(error.get("loc", ())) == ("body", "state")
             for error in exc.errors()
         )
-        if request.url.path == "/evaluate" and stale_state_field:
+        if request.url.path in {"/evaluate", "/debug"} and stale_state_field:
             return JSONResponse(
                 status_code=409,
                 content={"detail": STALE_CLIENT_MESSAGE},
@@ -374,6 +384,28 @@ def create_app(
             headers={"cache-control": "no-store"},
         )
 
+    def request_session(session_id):
+        """Create or resolve one session under the shared admission policy."""
+        if (
+            session_id is None
+            and not app.state.new_session_rate_limiter.allow(
+                NEW_SESSION_LIMIT_KEY
+            )
+        ):
+            raise HTTPException(
+                429,
+                "new session rate limit exceeded",
+                headers={"Retry-After": str(max(1, int(rate_limit_window)))},
+            )
+        try:
+            if session_id is None:
+                return app.state.session_store.create()
+            return session_id, app.state.session_store.resolve(session_id)
+        except SessionCapacityError as exc:
+            raise HTTPException(503, "session capacity reached") from exc
+        except SessionNotFoundError as exc:
+            raise HTTPException(404, "session not found or expired") from exc
+
     @app.post("/evaluate")
     def evaluate_endpoint(payload: EvaluateRequest):
         if len(payload.source) > app.state.max_source_length:
@@ -382,29 +414,7 @@ def create_app(
         if not app.state.concurrency_semaphore.acquire(blocking=False):
             raise HTTPException(503, "server busy, try again shortly")
         try:
-            if (
-                payload.session_id is None
-                and not app.state.new_session_rate_limiter.allow(
-                    NEW_SESSION_LIMIT_KEY
-                )
-            ):
-                raise HTTPException(
-                    429,
-                    "new session rate limit exceeded",
-                    headers={
-                        "Retry-After": str(max(1, int(rate_limit_window)))
-                    },
-                )
-            try:
-                if payload.session_id is None:
-                    session_id, session = app.state.session_store.create()
-                else:
-                    session_id = payload.session_id
-                    session = app.state.session_store.resolve(session_id)
-            except SessionCapacityError as exc:
-                raise HTTPException(503, "session capacity reached") from exc
-            except SessionNotFoundError as exc:
-                raise HTTPException(404, "session not found or expired") from exc
+            session_id, session = request_session(payload.session_id)
 
             with session.execution_lock:
                 original_state = app.state.session_store.snapshot(session)
@@ -446,6 +456,40 @@ def create_app(
                             raise HTTPException(409, "session was reset during evaluation")
 
                 return JSONResponse(status_code=response_status, content=body)
+        finally:
+            app.state.concurrency_semaphore.release()
+
+    @app.post("/debug")
+    def debug_endpoint(payload: DebugRequest):
+        if len(payload.source) > app.state.max_source_length:
+            raise HTTPException(413, "source exceeds maximum length")
+
+        if not app.state.concurrency_semaphore.acquire(blocking=False):
+            raise HTTPException(503, "server busy, try again shortly")
+        try:
+            session_id, session = request_session(payload.session_id)
+
+            with session.execution_lock:
+                original_state = app.state.session_store.snapshot(session)
+                outcome = app.state.debugger(
+                    payload.source,
+                    original_state,
+                    timeout=app.state.eval_timeout,
+                )
+                if not app.state.session_store.is_current(
+                    session_id,
+                    session,
+                ):
+                    raise HTTPException(
+                        409,
+                        "session was reset during debugging",
+                    )
+                body = dict(outcome.body)
+                body["session_id"] = session_id
+                return JSONResponse(
+                    status_code=outcome.status_code,
+                    content=body,
+                )
         finally:
             app.state.concurrency_semaphore.release()
 
