@@ -3,7 +3,7 @@ import re
 import tomllib
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read(relative_path: str) -> str:
@@ -13,6 +13,8 @@ def _read(relative_path: str) -> str:
 def test_service_uses_only_a_private_unix_socket():
     service = _read("deploy/rune.service")
 
+    assert "rune_web.app:app" in service
+    assert "--app-dir" not in service
     assert "--uds /run/@@SERVICE_NAME@@/rune.sock" in service
     assert "--forwarded-allow-ips=*" in service
     assert "--host " not in service
@@ -98,6 +100,7 @@ def test_deployer_builds_locked_and_promotes_immutable_releases():
         "chown root:root \"$STAGING_RELEASE\"",
         "chmod -R a-w,go+rX,u+rX \"$STAGING_RELEASE\"",
         "run_as_service env",
+        "import rune_web.app",
         "CURL_SOCKET=\"/run/$SERVICE_NAME/rune.sock\"",
     ):
         assert required in updater

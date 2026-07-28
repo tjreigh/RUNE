@@ -7,7 +7,7 @@ import tomllib
 import rune
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_public_package_exports_runtime_api():
@@ -31,7 +31,7 @@ def test_public_package_exports_runtime_api():
     assert rune.TraceResult.__annotations__["artifact_available"] is bool
 
 
-def test_project_declares_src_layout_and_console_command():
+def test_project_declares_src_layout_packages_static_assets_and_console_command():
     with (REPO_ROOT / "pyproject.toml").open("rb") as project_file:
         project = tomllib.load(project_file)
 
@@ -40,6 +40,10 @@ def test_project_declares_src_layout_and_console_command():
     assert project["tool"]["setuptools"]["packages"]["find"]["where"] == [
         "src"
     ]
+    assert project["tool"]["setuptools"]["package-data"]["rune_web"] == [
+        "static/*"
+    ]
+    assert project["tool"]["pytest"]["ini_options"]["pythonpath"] == ["src"]
 
 
 def test_python_m_rune_executes_a_program_from_source_tree(tmp_path):

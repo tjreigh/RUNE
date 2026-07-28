@@ -23,7 +23,6 @@ fi
 
 exec .venv/bin/python -m pytest \
     --cov=src \
-    --cov=web \
     --cov-branch \
     --cov-report=term-missing \
     --cov-report=html \

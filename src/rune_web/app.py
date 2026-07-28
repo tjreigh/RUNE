@@ -1,13 +1,14 @@
-"""FastAPI adapter for the RUNE web REPL prototype.
+"""FastAPI adapter for the RUNE web REPL.
 
 Run locally with:
-    .venv/bin/python -m uvicorn app:app --app-dir web --port 8000
+    .venv/bin/python -m uvicorn rune_web.app:app --port 8000
 
-This module never imports the core (src/) directly. Core-facing evaluation
-and validation both go through rune_worker: evaluation uses a disposable
+This module never reaches into the core's internals. Core-facing evaluation
+and validation both go through the worker adapter: evaluation uses a disposable
 subprocess, while bounded compile-only validation runs in-process.
 """
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -19,8 +20,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-import rune_worker
-from sessions import (
+from . import worker
+from .sessions import (
     InvalidSessionStateError,
     SessionCapacityError,
     SessionNotFoundError,
@@ -28,9 +29,15 @@ from sessions import (
     SessionStore,
 )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-STATIC_DIR = REPO_ROOT / "web" / "static"
-EXAMPLES_DIR = REPO_ROOT / "examples"
+PACKAGE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = PACKAGE_DIR / "static"
+SOURCE_EXAMPLES_DIR = PACKAGE_DIR.parents[1] / "examples"
+EXAMPLES_DIR = Path(
+    os.environ.get(
+        "RUNE_EXAMPLES_DIR",
+        SOURCE_EXAMPLES_DIR if SOURCE_EXAMPLES_DIR.is_dir() else Path.cwd() / "examples",
+    )
+)
 DEFAULT_MAX_CONCURRENT_EVALUATIONS = 2
 DEFAULT_MAX_CONCURRENT_VALIDATIONS = 4
 GLOBAL_EVALUATION_LIMIT_KEY = "all-evaluations"
@@ -287,8 +294,8 @@ def create_app(
     max_source_length: int = 10_000,
     max_request_bytes: int = 16_384,
     eval_timeout: float = 2.0,
-    evaluator=rune_worker.evaluate_isolated,
-    validator=rune_worker.validate_source,
+    evaluator=worker.evaluate_isolated,
+    validator=worker.validate_source,
     session_store: SessionStore | None = None,
 ) -> FastAPI:
     app = FastAPI()
@@ -466,4 +473,4 @@ def create_app(
     return app
 
 
-app = create_app()  # module-level instance for `uvicorn app:app --app-dir web`
+app = create_app()  # module-level instance for `uvicorn rune_web.app:app`

@@ -13,7 +13,7 @@ from rune.spans import Position, SourceSpan
 
 rune = cli
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # "1\n2\n3" costs exactly 4 steps: 1 for the ProgramNode plus 1 per NumberNode.
 THREE_STATEMENTS = "1\n2\n3"

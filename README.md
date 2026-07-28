@@ -269,6 +269,18 @@ Generate terminal and HTML line/branch coverage reports with
 `scripts/coverage.sh -k interpreter`. Open `htmlcov/index.html` to browse the
 HTML report.
 
+## Project layout
+
+The installable Python packages live under `src/`: `rune` contains the
+standard-library-only language core and CLI, while `rune_web` contains the
+FastAPI adapter, process isolation, sessions, and browser assets. Tests mirror
+those boundaries under `tests/core`, `tests/cli`, `tests/web`,
+`tests/packaging`, `tests/deployment`, and `tests/frontend`.
+
+Language examples and documentation remain top-level project resources.
+Operational configuration is kept in `deploy`, and repeatable development and
+deployment commands live in `scripts`.
+
 ## Deployment
 
 The VPS deployment uses Uvicorn behind Caddy and systemd. See the [deployment guide](deploy/README.md) for initial setup and updates.

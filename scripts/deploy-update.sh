@@ -182,8 +182,8 @@ run_as_deploy "$STAGING_RELEASE/.venv/bin/python" -m pip install \
     --no-deps \
     --no-build-isolation \
     "$STAGING_RELEASE"
-run_as_deploy env PYTHONPATH="$STAGING_RELEASE/web" \
-    "$STAGING_RELEASE/.venv/bin/python" -c 'import app'
+run_as_deploy env RUNE_EXAMPLES_DIR="$STAGING_RELEASE/examples" \
+    "$STAGING_RELEASE/.venv/bin/python" -c 'import rune_web.app'
 
 # A malicious build hook must not retain an open directory descriptor and
 # race the ownership transition. This account is dedicated to deployments,

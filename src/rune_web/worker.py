@@ -1,9 +1,4 @@
-"""RUNE-specific layer on top of web/isolation.py.
-
-This is the only module in web/ that touches the core package. It inserts
-src/ onto sys.path at import time so a source checkout can import ``rune``
-without relying on an editable install or externally configured PYTHONPATH.
-"""
+"""RUNE-specific layer on top of the process-isolation adapter."""
 
 import json
 import logging
@@ -13,16 +8,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-_SRC_DIR = str(Path(__file__).resolve().parent.parent / "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
+from rune.diagnostics import DiagnosticKind, RuneError
+from rune.limits import ExecutionLimits
+from rune.runtime import compile_source, evaluate
+from rune.runtime_state import RuntimeState
 
-from rune.diagnostics import DiagnosticKind, RuneError  # noqa: E402
-from rune.limits import ExecutionLimits  # noqa: E402
-from rune.runtime import compile_source, evaluate  # noqa: E402
-from rune.runtime_state import RuntimeState  # noqa: E402
-
-from isolation import IsolationStatus, run_isolated  # noqa: E402
+from .isolation import IsolationStatus, run_isolated
 
 logger = logging.getLogger(__name__)
 

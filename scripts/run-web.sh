@@ -16,4 +16,4 @@ if [ ! -x .venv/bin/python ]; then
 fi
 
 export DYLD_LIBRARY_PATH="/opt/homebrew/opt/expat/lib"
-exec .venv/bin/python -m uvicorn app:app --app-dir web --port "${PORT:-8000}"
+exec .venv/bin/python -m uvicorn rune_web.app:app --port "${PORT:-8000}"

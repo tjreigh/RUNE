@@ -11,10 +11,10 @@ pytest.importorskip("httpx2")
 
 from fastapi.testclient import TestClient
 
-import app as app_module
-from app import FixedWindowRateLimiter, MaxBodySizeMiddleware, create_app
-from rune_worker import WorkerOutcome
-from sessions import SessionStore
+from rune_web import app as app_module
+from rune_web.app import FixedWindowRateLimiter, MaxBodySizeMiddleware, create_app
+from rune_web.worker import WorkerOutcome
+from rune_web.sessions import SessionStore
 
 
 def test_validation_accepts_valid_source_without_evaluation_fields():
@@ -257,7 +257,11 @@ def test_frontend_validation_cancellation_and_stale_suppression():
     if node is None:
         pytest.skip("Node.js is required for the frontend behavior test")
 
-    test_file = Path(__file__).resolve().parent / "frontend_validation.test.js"
+    test_file = (
+        Path(__file__).resolve().parents[1]
+        / "frontend"
+        / "frontend_validation.test.js"
+    )
     completed = subprocess.run(
         [node, "--test", str(test_file)],
         check=False,
@@ -730,7 +734,9 @@ def test_static_css_and_javascript_are_served_separately():
 )
 def test_example_gallery_serves_canonical_valid_source(name):
     client = TestClient(create_app())
-    example_path = Path(__file__).resolve().parent.parent / "examples" / f"{name}.rune"
+    example_path = (
+        Path(__file__).resolve().parents[2] / "examples" / f"{name}.rune"
+    )
 
     response = client.get(f"/examples/{name}.rune")
 

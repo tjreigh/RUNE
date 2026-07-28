@@ -12,10 +12,11 @@ RuntimeDirectoryMode=0750
 
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=RUNE_EXAMPLES_DIR=@@APP_DIR@@/examples
 
 # The socket directory is accessible only to the runtime user and proxy group,
 # so every possible peer is trusted to provide Caddy's forwarding headers.
-ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn app:app --app-dir @@APP_DIR@@/web --uds /run/@@SERVICE_NAME@@/rune.sock --workers 1 --proxy-headers --forwarded-allow-ips=* --no-server-header --limit-concurrency 32 --backlog 64 --timeout-keep-alive 5
+ExecStart=@@APP_DIR@@/.venv/bin/python -m uvicorn rune_web.app:app --uds /run/@@SERVICE_NAME@@/rune.sock --workers 1 --proxy-headers --forwarded-allow-ips=* --no-server-header --limit-concurrency 32 --backlog 64 --timeout-keep-alive 5
 
 Restart=on-failure
 RestartSec=3

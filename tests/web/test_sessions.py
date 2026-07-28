@@ -1,6 +1,6 @@
 import pytest
 
-from sessions import (
+from rune_web.sessions import (
     InvalidSessionStateError,
     SessionCapacityError,
     SessionNotFoundError,

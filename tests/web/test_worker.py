@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import rune_worker
-from isolation import IsolationStatus
-from rune_worker import _bounded_dict, evaluate_isolated
+from rune_web import worker as rune_worker
+from rune_web.isolation import IsolationStatus
+from rune_web.worker import _bounded_dict, evaluate_isolated
 
 
 def _hanging_evaluator(source, state=None, limits=None):

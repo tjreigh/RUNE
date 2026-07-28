@@ -3,7 +3,7 @@ set -e
 
 # Runs the test suite. Any arguments are passed through to pytest, e.g.:
 #   scripts/test.sh -k isolation
-#   scripts/test.sh -v tests/test_web_app.py
+#   scripts/test.sh -v tests/web/test_app.py
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"

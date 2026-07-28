@@ -107,7 +107,15 @@ function loadApp(fetchImpl, initialStoredValues = []) {
     },
     setTimeout,
   });
-  const appPath = path.join(__dirname, "..", "web", "static", "app.js");
+  const appPath = path.join(
+    __dirname,
+    "..",
+    "..",
+    "src",
+    "rune_web",
+    "static",
+    "app.js"
+  );
   vm.runInContext(fs.readFileSync(appPath, "utf8"), context);
   return { context, elements, storedValues };
 }

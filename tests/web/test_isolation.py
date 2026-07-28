@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from isolation import IsolationStatus, run_isolated, _atomic_write_json
+from rune_web.isolation import IsolationStatus, run_isolated, _atomic_write_json
 
 # All targets must be module-level (picklable under the 'spawn' context).
 
