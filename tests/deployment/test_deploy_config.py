@@ -87,6 +87,8 @@ def test_deployer_refuses_checkout_execution_and_never_installs_policy():
     assert '-e "$APP_DIR' not in updater
     assert "pass one full 40-character reviewed commit SHA" in updater
     assert "--verify --end-of-options" in updater
+    assert 'if [ "$DEPLOY_REF" = "--check" ]' in updater
+    assert "Deployment preflight succeeded." in updater
 
 
 def test_deployer_builds_locked_and_promotes_immutable_releases():
@@ -98,7 +100,7 @@ def test_deployer_builds_locked_and_promotes_immutable_releases():
         "--ignore-scripts",
         "--production=false",
         "typecheck",
-        '"$YARN_BIN" --cwd "$STAGING_RELEASE" build',
+        'run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" build',
         '"$STAGING_RELEASE/node_modules"',
         "--require-hashes",
         "--only-binary=:all:",
@@ -113,6 +115,38 @@ def test_deployer_builds_locked_and_promotes_immutable_releases():
         assert required in updater
     assert 'pkill -KILL -u "$DEPLOY_USER"' in updater
     assert 'find -P "$STAGING_RELEASE" -type l' in updater
+
+
+def test_deployer_uses_deterministic_unprivileged_environments():
+    updater = _read("scripts/deploy-update.sh")
+
+    assert 'DEPLOY_HOME="${RUNE_DEPLOY_HOME:-/srv/rune/deploy-home}"' in updater
+    assert 'env -i -C "$_rune_run_dir"' in updater
+    assert 'HOME="$DEPLOY_HOME"' in updater
+    assert 'PATH="$PATH"' in updater
+    assert 'run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" install' in updater
+    assert 'run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" typecheck' in updater
+    assert 'run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" build' in updater
+    assert '"$YARN_BIN" --cwd "$STAGING_RELEASE"' not in updater
+    assert 'env -i -C "$CURRENT_PARENT"' in updater
+
+
+def test_deployment_runbook_puts_routine_tasks_before_setup_and_reference():
+    runbook = _read("deploy/README.md")
+
+    deploy = runbook.index("## Routine task: deploy an application update")
+    status = runbook.index("## Routine task: check deployment status")
+    rollback = runbook.index("## Recovery task: roll back manually")
+    control_plane = runbook.index(
+        "## Maintenance task: update the deployment control plane"
+    )
+    setup = runbook.index("## First-time task: prepare a production host")
+    security = runbook.index("## Reference: security model")
+
+    assert deploy < status < rollback < control_plane < setup < security
+    assert "sudo rune-deploy --check" in runbook
+    assert "It can be invoked\nfrom any working directory." in runbook
+    assert "do not loosen `/root` permissions" in runbook
 
 
 def test_policy_installer_requires_root_owned_installed_inputs():

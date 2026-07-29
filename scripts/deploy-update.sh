@@ -23,19 +23,28 @@ BUILD_DIR="${RUNE_BUILD_DIR:-/srv/rune/build}"
 RELEASES_DIR="${RUNE_RELEASES_DIR:-/srv/rune/releases}"
 CURRENT_LINK="${RUNE_CURRENT_LINK:-/srv/rune/current}"
 DEPLOY_USER="${RUNE_DEPLOY_USER:-rune-deploy}"
+DEPLOY_HOME="${RUNE_DEPLOY_HOME:-/srv/rune/deploy-home}"
 SERVICE_USER="${RUNE_SERVICE_USER:-rune}"
 SERVICE_NAME="${RUNE_SERVICE_NAME:-rune}"
 PYTHON_BIN="${RUNE_PYTHON_BIN:-/usr/bin/python3}"
 YARN_BIN="${RUNE_YARN_BIN:-/usr/bin/yarn}"
 REMOTE="${RUNE_REMOTE:-origin}"
 DEPLOY_REF="${1:-}"
+CHECK_ONLY=0
 STAGING_DIR=""
 STAGING_ROOTED=0
 PREVIOUS_RELEASE=""
 TARGET_RELEASE=""
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<'EOF'
+Usage:
+  sudo rune-deploy --check
+  sudo rune-deploy FULL_40_CHARACTER_COMMIT_SHA
+
+--check validates the installed helper, accounts, directories, toolchain, and
+source checkout without fetching, building, promoting, or restarting anything.
+EOF
     exit 0
 fi
 
@@ -43,6 +52,12 @@ fail() {
     echo "rune-deploy: $*" >&2
     exit 1
 }
+
+[ "$#" -le 1 ] || fail "pass --check or one full 40-character commit SHA"
+if [ "$DEPLOY_REF" = "--check" ]; then
+    CHECK_ONLY=1
+    DEPLOY_REF=""
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     fail "run the installed command as root, normally with sudo"
@@ -54,18 +69,20 @@ case "$DEPLOY_USER:$SERVICE_USER:$SERVICE_NAME:$REMOTE" in
         ;;
 esac
 for path in "$SOURCE_DIR" "$BUILD_DIR" "$RELEASES_DIR" "$CURRENT_LINK" \
-    "$PYTHON_BIN" "$YARN_BIN"; do
+    "$DEPLOY_HOME" "$PYTHON_BIN" "$YARN_BIN"; do
     case "$path" in
         /*) ;;
         *) fail "deployment paths must be absolute" ;;
     esac
 done
-if [ "${#DEPLOY_REF}" -ne 40 ]; then
-    fail "pass one full 40-character reviewed commit SHA"
+if [ "$CHECK_ONLY" -eq 0 ]; then
+    if [ "${#DEPLOY_REF}" -ne 40 ]; then
+        fail "pass one full 40-character reviewed commit SHA"
+    fi
+    case "$DEPLOY_REF" in
+        *[!0-9A-Fa-f]*) fail "deployment revision must be a full commit SHA" ;;
+    esac
 fi
-case "$DEPLOY_REF" in
-    *[!0-9A-Fa-f]*) fail "deployment revision must be a full commit SHA" ;;
-esac
 
 SCRIPT_PATH="$(readlink -f "$0")"
 if [ "$SCRIPT_PATH" != "$INSTALL_PATH" ]; then
@@ -76,7 +93,7 @@ if [ "$(stat -c '%u:%a' "$SCRIPT_PATH")" != "0:755" ]; then
 fi
 
 for command in git runuser systemctl find readlink stat mktemp mv ln chown chmod \
-    dirname node pgrep pkill rm uname; do
+    dirname env node pgrep pkill rm uname; do
     command -v "$command" >/dev/null 2>&1 ||
         fail "required command not found: $command"
 done
@@ -85,10 +102,6 @@ for account in "$DEPLOY_USER" "$SERVICE_USER"; do
 done
 [ -x "$PYTHON_BIN" ] || fail "Python executable not found: $PYTHON_BIN"
 [ -x "$YARN_BIN" ] || fail "Yarn executable not found: $YARN_BIN"
-[ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ] ||
-    fail "the frontend build requires Node.js 22 or newer"
-[ "$("$YARN_BIN" --version)" = "1.22.22" ] ||
-    fail "the frontend build requires Yarn 1.22.22"
 [ "$(uname -m)" = "x86_64" ] ||
     fail "the checked-in production lock supports Linux x86_64 only"
 "$PYTHON_BIN" -c 'import sys; raise SystemExit(
@@ -99,7 +112,7 @@ done
 [ -d "$RELEASES_DIR" ] || fail "release directory not found: $RELEASES_DIR"
 
 DEPLOY_UID="$(id -u "$DEPLOY_USER")"
-for path in "$SOURCE_DIR" "$BUILD_DIR" "$RELEASES_DIR"; do
+for path in "$SOURCE_DIR" "$BUILD_DIR" "$RELEASES_DIR" "$DEPLOY_HOME"; do
     [ "$(readlink -f "$path")" = "$path" ] ||
         fail "deployment directory must be canonical and not a symlink: $path"
 done
@@ -109,19 +122,43 @@ done
     fail "$BUILD_DIR must be owned by $DEPLOY_USER with mode 0700"
 [ "$(stat -c '%u:%a' "$RELEASES_DIR")" = "0:755" ] ||
     fail "$RELEASES_DIR must be owned by root with mode 0755"
+[ "$(stat -c '%u:%a' "$DEPLOY_HOME")" = "$DEPLOY_UID:700" ] ||
+    fail "$DEPLOY_HOME must be owned by $DEPLOY_USER with mode 0700"
 CURRENT_PARENT="$(dirname "$CURRENT_LINK")"
 [ "$(readlink -f "$CURRENT_PARENT")" = "$CURRENT_PARENT" ] ||
     fail "current-link parent must be canonical: $CURRENT_PARENT"
 [ "$(stat -c '%u:%a' "$CURRENT_PARENT")" = "0:755" ] ||
     fail "$CURRENT_PARENT must be owned by root with mode 0755"
 
+run_as_deploy_in() {
+    _rune_run_dir="$1"
+    shift
+    runuser -u "$DEPLOY_USER" -- env -i -C "$_rune_run_dir" \
+        HOME="$DEPLOY_HOME" \
+        USER="$DEPLOY_USER" \
+        LOGNAME="$DEPLOY_USER" \
+        PATH="$PATH" \
+        "$@"
+}
+
 run_as_deploy() {
-    runuser -u "$DEPLOY_USER" -- "$@"
+    run_as_deploy_in "$DEPLOY_HOME" "$@"
 }
 
 run_as_service() {
-    runuser -u "$SERVICE_USER" -- "$@"
+    runuser -u "$SERVICE_USER" -- env -i -C "$CURRENT_PARENT" \
+        USER="$SERVICE_USER" \
+        LOGNAME="$SERVICE_USER" \
+        PATH="$PATH" \
+        "$@"
 }
+
+NODE_MAJOR="$(run_as_deploy node -p 'process.versions.node.split(".")[0]')"
+[ "$NODE_MAJOR" -ge 22 ] ||
+    fail "the frontend build requires Node.js 22 or newer"
+YARN_VERSION="$(run_as_deploy "$YARN_BIN" --version)"
+[ "$YARN_VERSION" = "1.22.22" ] ||
+    fail "the frontend build requires Yarn 1.22.22"
 
 cleanup() {
     if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
@@ -141,6 +178,16 @@ trap 'exit 1' HUP INT TERM
 
 if [ -n "$(run_as_deploy git -C "$SOURCE_DIR" status --porcelain)" ]; then
     fail "refusing to deploy from a dirty checkout: $SOURCE_DIR"
+fi
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+    echo "Deployment preflight succeeded."
+    echo "  source: $SOURCE_DIR"
+    echo "  deploy user/home: $DEPLOY_USER ($DEPLOY_HOME)"
+    echo "  Node major: $NODE_MAJOR"
+    echo "  Yarn: $YARN_VERSION"
+    echo "  Python: $("$PYTHON_BIN" --version 2>&1)"
+    exit 0
 fi
 
 echo "Fetching $REMOTE as $DEPLOY_USER ..."
@@ -175,14 +222,14 @@ run_as_deploy tar -xf "$ARCHIVE" -C "$STAGING_RELEASE"
 run_as_deploy rm -f "$ARCHIVE"
 
 echo "Building an isolated release as $DEPLOY_USER ..."
-run_as_deploy "$YARN_BIN" --cwd "$STAGING_RELEASE" install \
+run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" install \
     --frozen-lockfile \
     --ignore-scripts \
     --non-interactive \
     --production=false \
     --cache-folder "$STAGING_DIR/yarn-cache"
-run_as_deploy "$YARN_BIN" --cwd "$STAGING_RELEASE" typecheck
-run_as_deploy "$YARN_BIN" --cwd "$STAGING_RELEASE" build
+run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" typecheck
+run_as_deploy_in "$STAGING_RELEASE" "$YARN_BIN" build
 run_as_deploy rm -rf -- "$STAGING_RELEASE/node_modules" \
     "$STAGING_DIR/yarn-cache"
 run_as_deploy "$PYTHON_BIN" -m venv --copies "$STAGING_RELEASE/.venv"
