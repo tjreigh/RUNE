@@ -19,7 +19,7 @@ if [ ! -x node_modules/.bin/tsc ]; then
 fi
 
 yarn typecheck
-yarn build
+yarn test
 
 export DYLD_LIBRARY_PATH="/opt/homebrew/opt/expat/lib"
 exec .venv/bin/python -m pytest "$@"

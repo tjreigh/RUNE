@@ -9,10 +9,12 @@
   "scripts": {
     "clean": "node frontend/clean.mjs",
     "build": "yarn clean && tsc --project tsconfig.json",
-    "typecheck": "tsc --noEmit",
-    "test": "yarn build && node --test tests/frontend/frontend_validation.test.js"
+    "build:test": "tsc --project tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json --noEmit",
+    "test": "yarn build && yarn build:test && node --test build/frontend-tests/tests/frontend/*.test.js"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "5.9.2"
   }
 }

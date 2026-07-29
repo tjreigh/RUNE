@@ -18,7 +18,7 @@ if [ ! -x node_modules/.bin/tsc ]; then
 fi
 
 yarn typecheck
-yarn build
+yarn test
 
 if [ -d /opt/homebrew/opt/expat/lib ]; then
     export DYLD_LIBRARY_PATH="/opt/homebrew/opt/expat/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"

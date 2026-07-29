@@ -1,8 +1,6 @@
 import asyncio
 import json
 from pathlib import Path
-import shutil
-import subprocess
 import threading
 
 import pytest
@@ -251,25 +249,6 @@ def test_global_validation_rate_limit_bounds_all_clients():
 
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "60"
-
-
-def test_frontend_validation_cancellation_and_stale_suppression():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for the frontend behavior test")
-
-    test_file = (
-        Path(__file__).resolve().parents[1]
-        / "frontend"
-        / "frontend_validation.test.js"
-    )
-    completed = subprocess.run(
-        [node, "--test", str(test_file)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def test_missing_frontend_build_fails_clearly(monkeypatch, tmp_path):

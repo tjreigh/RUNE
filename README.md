@@ -258,10 +258,11 @@ scripts/run-web.sh
 
 Then open <http://127.0.0.1:8000/>.
 
-For frontend-only work, `yarn typecheck` checks the TypeScript sources,
-`yarn build` emits the browser modules, and `yarn test` builds and runs the
-Node behavior tests. Generated modules live under
-`src/rune_web/static/build/` and are deliberately ignored by Git.
+For frontend-only work, `yarn typecheck` checks the TypeScript browser and test
+sources, `yarn build` emits the browser modules, and `yarn test` builds and runs
+the typed Node behavior tests. Generated browser modules live under
+`src/rune_web/static/build/`; compiled tests live under
+`build/frontend-tests/`. Both are deliberately ignored by Git.
 
 Choose **Debug** to record one bounded, non-committing execution, then use
 **Step Back**, **Step**, **Step Over**, or **Step Out** to replay it locally.
