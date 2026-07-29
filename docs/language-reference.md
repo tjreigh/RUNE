@@ -1,7 +1,8 @@
-# RUNE 0.8 language reference
+# RUNE language reference
 
-This document defines the v0.8 language. The [README](../README.md) is the
-tutorial; this page is the compact answer to “what does RUNE actually do?”
+This document defines the current RUNE language, targeting v0.9. The
+[README](../README.md) is the tutorial; this page is the compact answer to
+“what does RUNE actually do?”
 
 ## The model
 
@@ -32,8 +33,8 @@ and preserves the state it received.
 - Integer literals may be decimal or use `0b`, `0o`, and `0x`. Underscores are
   not accepted in numbers.
 - Newlines normally separate statements and cannot split an expression.
-- Blocks use typed endings: `end if`, `end while`, `end for`, and
-  `end function`.
+- Blocks use typed endings: `end if`, `end while`, `end for`, `end function`,
+  and `end chaos`.
 
 The reserved words are:
 
@@ -74,8 +75,8 @@ Important details:
 
 ## Chaos
 
-Runtime state starts with a chaos threshold of `1`. Change it with a
-non-negative integer literal:
+Runtime state starts with a chaos threshold of `1`. Change its persistent value
+with a non-negative integer literal:
 
 ```rune
 @chaos 10
@@ -87,6 +88,43 @@ current threshold. Zero and negative values are always falsy.
 `if`, `while`, `and`, `or`, and `not` use chaos truthiness. `and` and `or`
 short-circuit, and all logical results normalize to `1` or `0`. This means a
 true logical result can itself be falsy when the threshold is above `1`.
+
+### Scoped chaos
+
+`chaos expression` evaluates its expression once in the surrounding runtime
+context and executes its body under that temporary threshold:
+
+```rune
+@chaos 1
+
+chaos 500
+    if (1)
+        99
+    else
+        0
+    end if
+end chaos
+
+if (1)
+    99
+else
+    0
+end if
+```
+
+This outputs `0`, then `99`. A scoped threshold must be a non-negative integer.
+The active threshold is dynamically visible to nested blocks and to functions
+called from the block.
+
+Nested chaos blocks restore one another in stack order. The surrounding
+threshold is restored after normal completion, `return`, `break`, `continue`,
+a runtime failure, or an execution limit. An `@chaos` inside a scoped block
+changes the temporary threshold, but leaving the block still restores the
+threshold saved when it was entered.
+
+Entering and restoring a chaos scope emit bounded runtime events. As with all
+failed execution, a failure still discards the evaluation's values, events,
+and working state transactionally.
 
 ## Variables and control flow
 
@@ -161,6 +199,22 @@ reaching `end function` without a return is a runtime error.
 Function declarations are not stored in runtime state. A later REPL
 submission must repeat declarations it calls.
 
+## Trace debugging
+
+Tracing is an optional execution mode and does not change normal language
+semantics. A debug run executes once under the ordinary finite limits, records
+a separately bounded artifact, and does not commit its final state.
+
+Each trace frame identifies the next executable statement and presents the
+state produced by all preceding frames. Frames include reversible state,
+output, and event changes; dynamic function and loop context; cumulative
+statistics; and remaining budgets. Calls may be stepped into, and `return`,
+`break`, and `continue` identify their recorded destinations.
+
+The browser can replay the artifact forward or backward without keeping a
+worker paused. Restart rewinds the same recording rather than executing the
+program again.
+
 ## Diagnostics and limits
 
 Diagnostics are classified as `lex`, `parse`, `runtime`, `limit`, or
@@ -170,10 +224,11 @@ Normal execution defaults to 10,000 interpreter steps, recursion depth 100,
 1,000 output values, 256 variables and active bindings, 14,285-bit integers,
 and 1,000 runtime events. Expression and block nesting are separately limited
 to 100 levels. The web REPL also applies source, time, memory, concurrency,
-response, and session limits.
+response, session, trace-frame, and trace-artifact limits.
 
 Trusted local `--unbounded` execution removes interpreter budgets only. It
-does not remove parser, Python, or operating-system limits.
+does not remove parser, Python, or operating-system limits. Trace artifacts
+remain finite even when ordinary interpreter limits are explicitly removed.
 
 ## Compatibility before 1.0
 
@@ -186,7 +241,8 @@ The language is still allowed to change between minor releases. Until v1.0:
 - exact diagnostic wording, AST/token representation, resource accounting,
   web endpoints, and terminal formatting are not stable interfaces.
 
-The core serialized result keeps the fields `ok`, `values`, `diagnostics`,
-`events`, `state`, and `stats`. Consumers should ignore additional fields.
-The public web REPL is an application rather than a versioned general-purpose
-API.
+The core serialized evaluation result keeps the fields `ok`, `values`,
+`diagnostics`, `events`, `state`, and `stats`. The trace result keeps `ok`,
+`artifact_available`, `diagnostics`, `base_state`, and `frames`. Consumers
+should ignore additional fields. The public web REPL is an application rather
+than a versioned general-purpose API.

@@ -590,7 +590,7 @@ def test_default_limits_execute_full_example():
     assert result.ok
     assert result.values == [
         42, 42, 25, -3, -2, 42, 626, 0, 1, 1, 1, 2, 1, 0,
-        5, 4, 3, 1, 3, 5, 1, 3, 4, 120,
+        1, 0, 5, 4, 3, 1, 3, 5, 1, 3, 4, 120,
     ]
 
 

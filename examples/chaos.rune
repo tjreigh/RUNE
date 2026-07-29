@@ -1,17 +1,24 @@
-# Strings participate in arithmetic as code-point sums.
-"dog" + "cat"
+# A called function observes the dynamically active chaos threshold.
+function truth(value)
+  if (value)
+    return 1
+  end if
+  return 0
+end function
 
-# Comparisons return 1 or 0; chaos decides whether that is truthy.
 @chaos 1
-if ("dog" > "cat")
-  1
-else
-  0
-end if
+truth(1)
 
-@chaos 500
-if ("dog" > "cat")
-  1
-else
-  0
-end if
+chaos 500
+  truth(1)
+
+  # Nested scopes restore the threshold active immediately outside them.
+  chaos 1
+    truth(1)
+  end chaos
+
+  truth(1)
+end chaos
+
+# Leaving the outer scope restores the persistent threshold.
+truth(1)

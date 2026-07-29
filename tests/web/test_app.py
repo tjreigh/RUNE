@@ -912,7 +912,10 @@ def test_root_route_serves_html():
     )[0]
     assert 'id="page-theme"' in header
     assert 'id="guide-heading">How RUNE works<' in response.text
-    assert "Truth has a threshold" in response.text
+    assert "<p>version 0.9</p>" in response.text
+    assert "Truth has a lifetime" in response.text
+    assert "<dt>Temporary chaos</dt>" in response.text
+    assert "<code>end chaos</code>" in response.text
     assert "Strings collapse to the sum of their Unicode code points" in response.text
     assert 'href="/static/style.css?v=0.9.0"' in response.text
     assert 'src="/static/build/app.js?v=0.9.0" type="module"' in response.text

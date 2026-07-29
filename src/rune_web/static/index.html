@@ -61,7 +61,7 @@
             <option value="variables">Variables</option>
             <option value="expressions">Expressions</option>
             <option value="logic">Chaos-aware logic</option>
-            <option value="chaos">@chaos threshold demo</option>
+            <option value="chaos">Chaos thresholds and scopes</option>
             <option value="loops">Loops</option>
             <option value="functions">Functions and recursion</option>
             <option value="full">Full walkthrough</option>
@@ -302,23 +302,27 @@ Variables: (none)</pre>
         <p class="section-label">Language notes</p>
         <h2 id="guide-heading">How RUNE works</h2>
       </div>
-      <p>version 0.8</p>
+      <p>version 0.9</p>
     </div>
 
     <div class="concept-grid">
       <article class="concept-card chaos-card">
         <div class="concept-number">01</div>
-        <h3>Truth has a threshold</h3>
+        <h3>Truth has a lifetime</h3>
         <p>
-          <code>@chaos n</code> makes a value true only when it is at least
-          <code>n</code>. At chaos 500, even <code>1</code> is false.
+          <code>@chaos n</code> persists a threshold.
+          <code>chaos n</code> applies one temporarily, then restores the
+          surrounding value.
         </p>
-        <pre><code><span class="tok-directive">@chaos</span> <span class="tok-number">500</span>
-<span class="tok-keyword">if</span> (<span class="tok-number">499</span>)
-  <span class="tok-number">1</span>
-<span class="tok-keyword">else</span>
-  <span class="tok-number">0</span>
-<span class="tok-keyword">end if</span></code></pre>
+        <pre><code><span class="tok-directive">@chaos</span> <span class="tok-number">1</span>
+<span class="tok-keyword">chaos</span> <span class="tok-number">500</span>
+  <span class="tok-keyword">if</span> (<span class="tok-number">1</span>)
+    <span class="tok-number">99</span>
+  <span class="tok-keyword">else</span>
+    <span class="tok-number">0</span>
+  <span class="tok-keyword">end if</span>
+<span class="tok-keyword">end chaos</span>
+<span class="tok-number">1</span>  <span class="code-result">→ threshold is 1 again</span></code></pre>
       </article>
 
       <article class="concept-card unicode-card">
@@ -361,6 +365,10 @@ Variables: (none)</pre>
           <div>
             <dt>Counted loop</dt>
             <dd><code>for i from 1 to 5 step 2</code> · <code>end for</code></dd>
+          </div>
+          <div>
+            <dt>Temporary chaos</dt>
+            <dd><code>chaos expression</code> · <code>end chaos</code></dd>
           </div>
           <div>
             <dt>Function</dt>
@@ -418,7 +426,8 @@ Variables: (none)</pre>
 
     <p class="guide-footnote">
       Blocks use typed endings such as <code>end if</code>, <code>end for</code>,
-      and <code>end function</code>. Bare <code>end</code> is invalid.
+      <code>end chaos</code>, and <code>end function</code>. Bare
+      <code>end</code> is invalid.
     </p>
   </section>
 </main>

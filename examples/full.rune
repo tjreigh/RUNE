@@ -39,6 +39,13 @@ else
   0
 end if
 
+# A scoped threshold is temporary and restores the surrounding value.
+@chaos 1
+chaos 500
+  not 1
+end chaos
+not 1
+
 # while and for loops remain bounded by the runtime limits.
 @chaos 3
 count = 5
