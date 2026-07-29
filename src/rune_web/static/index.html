@@ -141,21 +141,76 @@ answer</textarea>
           >Debugger idle.</p>
         </div>
         <div class="debug-controls" aria-label="Trace playback controls">
-          <button id="step-back" type="button" disabled>← Step back</button>
-          <button id="step" type="button" disabled>Step →</button>
+          <button id="step-back" type="button" disabled>
+            <span class="control-icon" aria-hidden="true">⬅️</span>
+            <span>Step back</span>
+          </button>
+          <button id="step" type="button" disabled>
+            <span class="control-icon" aria-hidden="true">➡️</span>
+            <span>Step</span>
+          </button>
           <button
             id="step-over"
             type="button"
             title="Run over nested calls or to the end of the enclosing loop"
             disabled
-          >Step over ⇥</button>
+          >
+            <span class="control-icon" aria-hidden="true">⤵️</span>
+            <span>Step over</span>
+          </button>
           <button
             id="step-out"
             type="button"
             title="Run until the current function invocation returns"
             disabled
-          >Step out ↥</button>
-          <button id="stop" type="button" disabled>Stop</button>
+          >
+            <span class="control-icon" aria-hidden="true">⤴️</span>
+            <span>Step out</span>
+          </button>
+          <button
+            id="play"
+            type="button"
+            title="Play or pause the remaining recorded frames"
+            disabled
+          >
+            <span
+              id="play-icon"
+              class="control-icon"
+              aria-hidden="true"
+            >▶️</span>
+            <span id="play-label">Play</span>
+          </button>
+          <label
+            id="playback-speed-control"
+            class="playback-speed"
+            for="playback-speed"
+            hidden
+          >
+            Speed
+            <input
+              id="playback-speed"
+              type="range"
+              min="0.25"
+              max="2"
+              step="0.25"
+              value="1"
+              disabled
+            >
+            <output id="playback-speed-value" for="playback-speed">1×</output>
+          </label>
+          <button
+            id="restart"
+            type="button"
+            title="Return to the beginning of this recorded trace"
+            disabled
+          >
+            <span class="control-icon" aria-hidden="true">🔄</span>
+            <span>Restart</span>
+          </button>
+          <button id="stop" type="button" disabled>
+            <span class="control-icon" aria-hidden="true">⏹️</span>
+            <span>Stop</span>
+          </button>
         </div>
       </div>
       <div id="output" role="region" aria-live="polite" aria-label="Program output"></div>

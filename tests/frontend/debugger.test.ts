@@ -10,6 +10,7 @@ import {
   deferred,
   flushAsync,
   loadApp,
+  manualTimers,
   response,
 } from "./support/fake-browser.js";
 import type { RecordedRequest } from "./support/fake-browser.js";
@@ -176,6 +177,145 @@ test("debug trace controls replay state without replacing committed state", asyn
   );
 });
 
+test("live playback can pause, resume, complete, and stop without announcement flooding", async () => {
+  const timers = manualTimers();
+  const trace = {
+    ok: true,
+    artifact_available: true,
+    session_id: "trace-session",
+    diagnostics: [],
+    base_state: { chaos_threshold: 1 },
+    frames: [
+      traceFrame(0),
+      traceFrame(1, {
+        chaos_threshold: { before: 1, after: 3 },
+        output_values: [1],
+      }),
+      traceFrame(2, {
+        chaos_threshold: { before: 3, after: 3 },
+        output_values: [2],
+      }),
+      traceFrame(3, {
+        chaos_threshold: { before: 3, after: 3 },
+        output_values: [3],
+      }, {
+        active: null,
+        status: "completed",
+      }),
+    ],
+  };
+  const app = loadApp(
+    async (url) => response(
+      url === "/debug"
+        ? trace
+        : { ok: true, diagnostics: [] },
+    ),
+    [],
+    timers,
+  );
+  const debug = app.elements.get("debug");
+  const restart = app.elements.get("restart");
+  const play = app.elements.get("play");
+  const playIcon = app.elements.get("play-icon");
+  const playLabel = app.elements.get("play-label");
+  const playbackSpeedControl = app.elements.get("playback-speed-control");
+  const playbackSpeed = app.elements.get("playback-speed");
+  const playbackSpeedValue = app.elements.get("playback-speed-value");
+  const step = app.elements.get("step");
+  const stop = app.elements.get("stop");
+  const status = app.elements.get("debug-status");
+  const output = app.elements.get("output");
+  const runtimeState = app.elements.get("runtime-state");
+  const chaosLevel = app.elements.get("chaos-level");
+
+  assert.equal(playbackSpeedControl.hidden, true);
+  await debug.dispatch("click");
+  assert.equal(restart.disabled, true);
+  assert.equal(play.disabled, false);
+  assert.equal(playIcon.textContent, "▶️");
+  assert.equal(playLabel.textContent, "Play");
+  assert.equal(playbackSpeedControl.hidden, false);
+  assert.equal(playbackSpeed.disabled, false);
+  assert.equal(playbackSpeedValue.textContent, "1×");
+
+  play.dispatch("click");
+  assert.equal(status.dataset.state, "playing");
+  assert.equal(status.textContent, "Playing trace…");
+  assert.equal(restart.disabled, false);
+  assert.equal(playIcon.textContent, "⏸️");
+  assert.equal(playLabel.textContent, "Pause");
+  assert.equal(step.disabled, true);
+  assert.equal(output.attributes.get("aria-live"), "off");
+  assert.equal(runtimeState.attributes.get("aria-live"), "off");
+  assert.equal(timers.hasPending(140), true);
+
+  playbackSpeed.value = "2";
+  playbackSpeed.dispatch("input");
+  assert.equal(playbackSpeedValue.textContent, "2×");
+  assert.equal(timers.hasPending(140), false);
+  assert.equal(timers.pendingCountFor(70), 1);
+
+  timers.runNext(70);
+  assert.equal(status.dataset.state, "playing");
+  assert.equal(output.textContent, "1");
+  assert.equal(chaosLevel.textContent, "3");
+  assert.equal(runtimeState.classes.has("chaos-changed"), true);
+  assert.equal(chaosLevel.classes.has("chaos-changed"), false);
+  assert.equal(timers.pendingCountFor(500), 1);
+  assert.equal(timers.hasPending(70), true);
+
+  play.dispatch("click");
+  assert.equal(status.dataset.state, "paused");
+  assert.match(status.textContent, /frame 2 of 4/);
+  assert.equal(playIcon.textContent, "▶️");
+  assert.equal(playLabel.textContent, "Play");
+  assert.equal(output.attributes.get("aria-live"), "polite");
+  assert.equal(runtimeState.attributes.get("aria-live"), "polite");
+  assert.equal(playbackSpeedControl.hidden, false);
+  assert.equal(timers.hasPending(70), false);
+  timers.runNext(500);
+  assert.equal(runtimeState.classes.has("chaos-changed"), false);
+
+  play.dispatch("click");
+  timers.runNext(70);
+  assert.equal(output.textContent, "1\n2");
+  timers.runNext(70);
+  assert.equal(status.dataset.state, "finished");
+  assert.match(status.textContent, /frame 4 of 4/);
+  assert.equal(output.textContent, "1\n2\n3");
+  assert.equal(restart.disabled, false);
+  assert.equal(play.disabled, true);
+  assert.equal(playIcon.textContent, "▶️");
+  assert.equal(playLabel.textContent, "Play");
+  assert.equal(playbackSpeedControl.hidden, true);
+  assert.equal(playbackSpeed.disabled, true);
+
+  restart.dispatch("click");
+  assert.equal(status.dataset.state, "paused");
+  assert.match(status.textContent, /frame 1 of 4/);
+  assert.equal(restart.disabled, true);
+  assert.equal(play.disabled, false);
+  assert.equal(playbackSpeedControl.hidden, false);
+  assert.equal(playbackSpeed.disabled, false);
+  assert.equal(playbackSpeedValue.textContent, "2×");
+  assert.equal(chaosLevel.textContent, "1");
+  assert.equal(output.textContent, "");
+
+  play.dispatch("click");
+  timers.runNext(70);
+  assert.equal(timers.hasPending(70), true);
+  restart.dispatch("click");
+  assert.equal(status.dataset.state, "paused");
+  assert.match(status.textContent, /frame 1 of 4/);
+  assert.equal(timers.hasPending(70), false);
+  assert.equal(output.textContent, "");
+
+  stop.dispatch("click");
+  assert.equal(status.dataset.state, "idle");
+  assert.equal(playbackSpeedControl.hidden, true);
+  assert.equal(playbackSpeed.disabled, true);
+});
+
 test("editing source aborts and supersedes a pending debug request", async () => {
   const pendingDebug = deferred();
   let debugSignal: AbortSignal | undefined;
@@ -189,6 +329,7 @@ test("editing source aborts and supersedes a pending debug request", async () =>
   const debugPromise = app.elements.get("debug").dispatch("click");
   await flushAsync();
   assert.equal(app.elements.get("debug-status").dataset.state, "loading");
+  assert.equal(app.elements.get("playback-speed-control").hidden, true);
 
   const source = app.elements.get("source");
   source.value = "2";
@@ -255,6 +396,7 @@ test("a terminal trace error preserves prior output and resolves its diagnostic"
 
   app.elements.get("step").dispatch("click");
   assert.equal(app.elements.get("debug-status").dataset.state, "error");
+  assert.equal(app.elements.get("playback-speed-control").hidden, true);
   assert.match(app.elements.get("output").textContent, /^7\n\nRuntime error:/);
   assert.equal(app.elements.get("output").classes.has("error"), true);
 

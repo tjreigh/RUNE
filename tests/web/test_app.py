@@ -887,9 +887,14 @@ def test_root_route_serves_html():
     assert 'id="highlighting-content"' in response.text
     assert 'id="trace-highlighting-content"' in response.text
     assert 'id="debug"' in response.text
+    assert 'id="restart"' in response.text
     assert 'id="step-back"' in response.text
     assert 'id="step-over"' in response.text
     assert 'id="step-out"' in response.text
+    assert 'id="play"' in response.text
+    assert 'id="playback-speed-control"' in response.text
+    assert 'id="playback-speed"' in response.text
+    assert 'id="playback-speed-value"' in response.text
     assert 'id="runtime-state"' in response.text
     assert 'id="inspector-context"' in response.text
     assert 'id="source-position"' in response.text

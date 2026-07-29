@@ -265,15 +265,21 @@ the typed Node behavior tests. Generated browser modules live under
 `build/frontend-tests/`. Both are deliberately ignored by Git.
 
 Choose **Debug** to record one bounded, non-committing execution, then use
-**Step Back**, **Step**, **Step Over**, or **Step Out** to replay it locally.
-The highlighted source span is the next statement to execute; chaos, output,
-variables, locals, events, stack and loop context, statistics, and remaining
-budgets reflect work completed before that statement. **Stop** or a source edit
-leaves the ordinary session at its last committed **Run** result. Within a
-loop, **Step Over** advances to the first frame after the innermost enclosing
-loop; outside a loop, it advances past any nested function calls and stops when
-execution returns to the current call depth. Use **Step** to enter a call and
-inspect each recursive invocation, then **Step Out** to return to its caller.
+**Restart**, **Step Back**, **Step**, **Step Over**, or **Step Out** to replay
+it locally, or **Play** to advance through the remaining frames at a visible
+cadence. **Restart** rewinds the existing recording without running the program
+again. The Play control becomes **Pause** while playback is active, and the
+**Speed** slider appears while the trace is paused or playing and adjusts its
+rate from 0.25× to 2× immediately. The highlighted source span is the next
+statement to execute; chaos, output, variables, locals, events, stack and loop
+context, statistics, and remaining budgets reflect work completed before that
+statement. The chaos indicator briefly highlights whenever that value changes.
+**Stop** or a source edit leaves the ordinary session at its last committed
+**Run** result. Within a loop, **Step Over** advances to the first frame after
+the innermost enclosing loop; outside a loop, it advances past any nested
+function calls and stops when execution returns to the current call depth. Use
+**Step** to enter a call and inspect each recursive invocation, then **Step
+Out** to return to its caller.
 
 Expand **Runtime internals** beneath the output to inspect committed state after
 a normal Run or the selected frame during trace playback. Failed evaluations

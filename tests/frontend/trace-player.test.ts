@@ -110,6 +110,16 @@ test("trace playback reverses state, locals, output, and events", () => {
   assert.deepEqual(playback.current!.outputValues, []);
   assert.deepEqual(playback.current!.events, []);
   assert.equal(playback.stepBack(), false);
+
+  playback.stepForward();
+  assert.equal(playback.restart(), true);
+  assert.equal(playback.index, 0);
+  assert.equal(playback.current!.chaosThreshold, 2);
+  assert.deepEqual(playback.current!.variables, {});
+  assert.deepEqual(playback.current!.locals, []);
+  assert.deepEqual(playback.current!.outputValues, []);
+  assert.deepEqual(playback.current!.events, []);
+  assert.equal(playback.restart(), false);
 });
 
 test("step over exits the innermost enclosing loop", () => {

@@ -104,6 +104,18 @@ export interface RecordedRequest {
   options: FakeRequestOptions;
 }
 
+export interface TimerServices {
+  setTimeout: typeof globalThis.setTimeout;
+  clearTimeout: typeof globalThis.clearTimeout;
+}
+
+export interface ManualTimers extends TimerServices {
+  readonly pendingCount: number;
+  pendingCountFor: (delay: number) => number;
+  hasPending: (delay: number) => boolean;
+  runNext: (delay?: number) => void;
+}
+
 export function deferred<T = FakeResponse>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -126,9 +138,68 @@ export function response<T>(body: T, status = 200): FakeResponse<T> {
   };
 }
 
+export function manualTimers(): ManualTimers {
+  type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
+  const scheduled = new Map<
+    TimerHandle,
+    { callback: () => void; delay: number }
+  >();
+  let nextId = 1;
+  const timerServices = {
+    setTimeout: ((
+      callback: () => void,
+      delay = 0,
+    ): TimerHandle => {
+      const handle = nextId++ as unknown as TimerHandle;
+      scheduled.set(handle, { callback, delay });
+      return handle;
+    }) as typeof globalThis.setTimeout,
+    clearTimeout: ((handle: TimerHandle | undefined): void => {
+      if (handle !== undefined) {
+        scheduled.delete(handle);
+      }
+    }) as typeof globalThis.clearTimeout,
+  };
+  return {
+    ...timerServices,
+    get pendingCount(): number {
+      return scheduled.size;
+    },
+    hasPending(delay: number): boolean {
+      return Array.from(scheduled.values()).some(
+        (timer) => timer.delay === delay,
+      );
+    },
+    pendingCountFor(delay: number): number {
+      return Array.from(scheduled.values()).filter(
+        (timer) => timer.delay === delay,
+      ).length;
+    },
+    runNext(delay?: number): void {
+      const entry = Array.from(scheduled.entries()).find(
+        ([, timer]) => delay === undefined || timer.delay === delay,
+      );
+      if (entry === undefined) {
+        throw new Error(
+          delay === undefined
+            ? "No timer is pending"
+            : `No ${delay}ms timer is pending`,
+        );
+      }
+      const [handle, timer] = entry;
+      scheduled.delete(handle);
+      timer.callback();
+    },
+  };
+}
+
 export function loadApp(
   fetchImpl: FakeFetch,
   initialStoredValues: Iterable<readonly [string, string]> = [],
+  timerServices: TimerServices = {
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  },
 ): {
   document: {
     documentElement: FakeElement;
@@ -160,13 +231,21 @@ export function loadApp(
   element("run");
   element("debug");
   element("reset");
+  element("restart");
   element("step-back");
   element("step");
   element("step-over");
   element("step-out");
+  element("play");
+  element("play-icon", "▶️");
+  element("play-label", "Play");
+  element("playback-speed-control");
+  element("playback-speed", "1");
+  element("playback-speed-value");
   element("stop");
   element("debug-status");
   element("examples");
+  element("runtime-state");
   element("chaos-level");
   element("inspector-state");
   element("inspector-events");
@@ -181,14 +260,14 @@ export function loadApp(
   };
   startRuneRepl({
     AbortController,
-    clearTimeout,
+    clearTimeout: timerServices.clearTimeout,
     document: document as unknown as Document,
     fetch: fetchImpl as unknown as typeof globalThis.fetch,
     localStorage: {
       getItem: (key: string) => storedValues.get(key) ?? null,
       setItem: (key: string, value: string) => storedValues.set(key, value),
     } as unknown as Storage,
-    setTimeout,
+    setTimeout: timerServices.setTimeout,
   });
   return { document, elements, storedValues };
 }

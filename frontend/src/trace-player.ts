@@ -297,6 +297,15 @@ export class TracePlayback {
     return true;
   }
 
+  /** Rewinds the recorded execution to its first frame. */
+  restart(): boolean {
+    let rewound = false;
+    while (this.stepBack()) {
+      rewound = true;
+    }
+    return rewound;
+  }
+
   diagnosticForCurrentFrame(): Diagnostic | null {
     const diagnosticIndex = this.current?.frame.diagnostic_index;
     if (diagnosticIndex === undefined) {

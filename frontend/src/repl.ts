@@ -48,9 +48,11 @@ interface EvaluateRequest {
 }
 
 type DebuggerState = (
-  "idle" | "loading" | "paused" | "finished" | "error"
+  "idle" | "loading" | "paused" | "playing" | "finished" | "error"
 );
 type RequestKind = "evaluate" | "debug";
+
+const PLAYBACK_FRAME_DELAY_MS = 140;
 
 interface RuneReplDependencies {
   document: Document;
@@ -133,6 +135,7 @@ export function startRuneRepl({
   const runBtn = requiredElement(document, "run") as HTMLButtonElement;
   const debugBtn = requiredElement(document, "debug") as HTMLButtonElement;
   const resetBtn = requiredElement(document, "reset") as HTMLButtonElement;
+  const restartBtn = requiredElement(document, "restart") as HTMLButtonElement;
   const stepBackBtn = requiredElement(
     document,
     "step-back",
@@ -146,12 +149,28 @@ export function startRuneRepl({
     document,
     "step-out",
   ) as HTMLButtonElement;
+  const playBtn = requiredElement(document, "play") as HTMLButtonElement;
+  const playIconEl = requiredElement(document, "play-icon");
+  const playLabelEl = requiredElement(document, "play-label");
+  const playbackSpeedEl = requiredElement(
+    document,
+    "playback-speed",
+  ) as HTMLInputElement;
+  const playbackSpeedValueEl = requiredElement(
+    document,
+    "playback-speed-value",
+  );
+  const playbackSpeedControlEl = requiredElement(
+    document,
+    "playback-speed-control",
+  );
   const stopBtn = requiredElement(document, "stop") as HTMLButtonElement;
   const debugStatusEl = requiredElement(document, "debug-status");
   const examplesEl = requiredElement(
     document,
     "examples",
   ) as HTMLSelectElement;
+  const runtimeStateEl = requiredElement(document, "runtime-state");
   const chaosLevelEl = requiredElement(document, "chaos-level");
   const inspectorStateEl = requiredElement(document, "inspector-state");
   const inspectorEventsEl = requiredElement(document, "inspector-events");
@@ -174,6 +193,15 @@ export function startRuneRepl({
   let activeController: AbortController | null = null;
   let requestInFlight = false;
   let activeRequestKind: RequestKind | null = null;
+  const initialPlaybackSpeed = Number.parseFloat(playbackSpeedEl.value);
+  let playbackSpeed = (
+    Number.isFinite(initialPlaybackSpeed) && initialPlaybackSpeed > 0
+  )
+    ? initialPlaybackSpeed
+    : 1;
+  playbackSpeedValueEl.textContent = `${playbackSpeed}×`;
+  let playbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let chaosHighlightTimer: ReturnType<typeof setTimeout> | null = null;
   let validationRequestSeq = 0;
   let validationController: AbortController | null = null;
   let validationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -487,9 +515,23 @@ export function startRuneRepl({
     }
   });
 
-  function updateChaosDisplay(): void {
-    const threshold = heldState?.chaos_threshold ?? 1;
-    chaosLevelEl.textContent = String(threshold);
+  function updateChaosDisplay(
+    threshold = heldState?.chaos_threshold ?? 1,
+  ): void {
+    const nextValue = String(threshold);
+    if (chaosLevelEl.textContent === nextValue) {
+      return;
+    }
+
+    chaosLevelEl.textContent = nextValue;
+    if (chaosHighlightTimer !== null) {
+      clearTimeout(chaosHighlightTimer);
+    }
+    runtimeStateEl.classList.toggle("chaos-changed", true);
+    chaosHighlightTimer = setTimeout(() => {
+      chaosHighlightTimer = null;
+      runtimeStateEl.classList.toggle("chaos-changed", false);
+    }, 500);
   }
 
   function renderInspector(): void {
@@ -502,23 +544,47 @@ export function startRuneRepl({
   }
 
   function updateControlAvailability(): void {
+    const playing = debuggerState === "playing";
+    const playbackActive = playing || debuggerState === "paused";
     runBtn.disabled = requestInFlight;
     debugBtn.disabled = requestInFlight;
-    stepBackBtn.disabled = tracePlayback === null || !tracePlayback.canStepBack;
-    stepBtn.disabled = tracePlayback === null || !tracePlayback.canStepForward;
-    stepOverBtn.disabled = stepBtn.disabled;
-    stepOutBtn.disabled = tracePlayback === null || !tracePlayback.canStepOut;
+    restartBtn.disabled = (
+      tracePlayback === null
+      || (!playing && !tracePlayback.canStepBack)
+    );
+    stepBackBtn.disabled = (
+      playing || tracePlayback === null || !tracePlayback.canStepBack
+    );
+    stepBtn.disabled = (
+      playing || tracePlayback === null || !tracePlayback.canStepForward
+    );
+    stepOverBtn.disabled = playing || stepBtn.disabled;
+    stepOutBtn.disabled = (
+      playing || tracePlayback === null || !tracePlayback.canStepOut
+    );
+    playBtn.disabled = (
+      tracePlayback === null
+      || (!playing && !tracePlayback.canStepForward)
+    );
+    playIconEl.textContent = playing ? "⏸️" : "▶️";
+    playLabelEl.textContent = playing ? "Pause" : "Play";
+    playbackSpeedControlEl.hidden = !playbackActive;
+    playbackSpeedEl.disabled = !playbackActive;
     stopBtn.disabled = debuggerState === "idle";
   }
 
   function setDebuggerStatus(state: DebuggerState, text: string): void {
     debuggerState = state;
+    const liveMode = state === "playing" ? "off" : "polite";
+    outputEl.setAttribute("aria-live", liveMode);
+    runtimeStateEl.setAttribute("aria-live", liveMode);
     debugStatusEl.dataset.state = state;
     debugStatusEl.textContent = text;
     updateControlAvailability();
   }
 
   function restoreCommittedPresentation(message = "Debugger idle."): void {
+    stopPlaybackTimer();
     tracePlayback = null;
     traceHighlightingContentEl.innerHTML = highlightActiveTraceSpan(
       sourceEl.value,
@@ -558,7 +624,7 @@ export function startRuneRepl({
       : `Paused at line ${line}, ${framePosition}.`;
   }
 
-  function renderTraceSnapshot(): void {
+  function renderTraceSnapshot(updateStatus = true): void {
     const snapshot = tracePlayback?.current;
     if (snapshot === null || snapshot === undefined) {
       return;
@@ -569,7 +635,7 @@ export function startRuneRepl({
       snapshot.frame.active?.span ?? null,
     );
     revealTraceLine(snapshot.frame.active?.span ?? null);
-    chaosLevelEl.textContent = String(snapshot.chaosThreshold);
+    updateChaosDisplay(snapshot.chaosThreshold);
     inspectorStateEl.textContent = formatTraceState(snapshot);
     if (snapshot.events.length === 0) {
       inspectorEventsEl.textContent = "No runtime events through this frame.";
@@ -591,10 +657,45 @@ export function startRuneRepl({
       outputLines.push("", formatDiagnostic(diagnostic));
     }
     renderOutput(outputLines.join("\n"), diagnostic !== null);
-    setDebuggerStatus(
-      traceStateForFrame(snapshot),
-      traceStatusText(snapshot),
-    );
+    if (updateStatus) {
+      setDebuggerStatus(
+        traceStateForFrame(snapshot),
+        traceStatusText(snapshot),
+      );
+    }
+  }
+
+  function stopPlaybackTimer(): void {
+    if (playbackTimer !== null) {
+      clearTimeout(playbackTimer);
+      playbackTimer = null;
+    }
+  }
+
+  function schedulePlaybackFrame(): void {
+    stopPlaybackTimer();
+    playbackTimer = setTimeout(() => {
+      playbackTimer = null;
+      if (debuggerState !== "playing" || tracePlayback === null) {
+        return;
+      }
+      if (!tracePlayback.stepForward()) {
+        renderTraceSnapshot();
+        return;
+      }
+
+      const snapshot = tracePlayback.current;
+      if (
+        snapshot === null
+        || snapshot.frame.status !== "paused"
+        || !tracePlayback.canStepForward
+      ) {
+        renderTraceSnapshot();
+        return;
+      }
+      renderTraceSnapshot(false);
+      schedulePlaybackFrame();
+    }, Math.round(PLAYBACK_FRAME_DELAY_MS / playbackSpeed));
   }
 
   function renderUnavailableTrace(result: TraceResult): void {
@@ -696,27 +797,73 @@ export function startRuneRepl({
     });
   }
 
+  restartBtn.addEventListener("click", () => {
+    if (tracePlayback === null) {
+      return;
+    }
+    stopPlaybackTimer();
+    tracePlayback.restart();
+    renderTraceSnapshot();
+  });
+
   stepBackBtn.addEventListener("click", () => {
-    if (tracePlayback?.stepBack() === true) {
+    if (
+      debuggerState !== "playing"
+      && tracePlayback?.stepBack() === true
+    ) {
       renderTraceSnapshot();
     }
   });
 
   stepBtn.addEventListener("click", () => {
-    if (tracePlayback?.stepForward() === true) {
+    if (
+      debuggerState !== "playing"
+      && tracePlayback?.stepForward() === true
+    ) {
       renderTraceSnapshot();
     }
   });
 
   stepOverBtn.addEventListener("click", () => {
-    if (tracePlayback?.stepOver() === true) {
+    if (
+      debuggerState !== "playing"
+      && tracePlayback?.stepOver() === true
+    ) {
       renderTraceSnapshot();
     }
   });
 
   stepOutBtn.addEventListener("click", () => {
-    if (tracePlayback?.stepOut() === true) {
+    if (
+      debuggerState !== "playing"
+      && tracePlayback?.stepOut() === true
+    ) {
       renderTraceSnapshot();
+    }
+  });
+
+  playBtn.addEventListener("click", () => {
+    if (debuggerState === "playing") {
+      stopPlaybackTimer();
+      renderTraceSnapshot();
+      return;
+    }
+    if (tracePlayback === null || !tracePlayback.canStepForward) {
+      return;
+    }
+    setDebuggerStatus("playing", "Playing trace…");
+    schedulePlaybackFrame();
+  });
+
+  playbackSpeedEl.addEventListener("input", () => {
+    const selectedSpeed = Number.parseFloat(playbackSpeedEl.value);
+    if (!Number.isFinite(selectedSpeed) || selectedSpeed <= 0) {
+      return;
+    }
+    playbackSpeed = selectedSpeed;
+    playbackSpeedValueEl.textContent = `${selectedSpeed}×`;
+    if (debuggerState === "playing") {
+      schedulePlaybackFrame();
     }
   });
 

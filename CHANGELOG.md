@@ -18,9 +18,10 @@ Added:
   diagnostics referenced by error frames, and explicit artifact availability.
 - An isolated `POST /debug` backend that records a trace from a normal web
   session snapshot without committing the traced program's final state.
-- A browser trace player with Debug, Step Back, Step, Step Over, Step Out, and
-  Stop controls; reversible state, output, and event playback; source-span
-  highlighting; and frame context, stack, loop, statistics, and budget views.
+- A browser trace player with Debug, Restart, Step Back, Step, Step Over, Step
+  Out, Play/Pause, and Stop controls; reversible state, output, and event
+  playback; source-span highlighting; and frame context, stack, loop,
+  statistics, and budget views.
 
 Changed:
 
@@ -47,7 +48,12 @@ Behavior and migration notes:
   committed Run result. Step Over exits the innermost enclosing loop, matching
   the loop-aware debugger behavior, or advances past nested function calls
   until execution returns to the current call depth. Step Out advances until
-  the current function invocation returns to its caller.
+  the current function invocation returns to its caller. Play advances at a
+  visible, adjustable 0.25×–2× cadence, can be paused on the selected frame,
+  and suppresses intermediate live-region announcements. Its speed control is
+  shown only while playback is paused or active, and chaos-level changes receive
+  a brief visual highlight. Restart rewinds the current artifact locally
+  without recording another trace.
 - Trace diagnostics are stored once at the artifact level; error frames refer
   to them by `diagnostic_index`.
 - Before deploying over an installation whose root-owned deployer

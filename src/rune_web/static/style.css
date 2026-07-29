@@ -201,6 +201,16 @@ h1 {
   padding: 0.25rem 0.4rem;
   border: 1px solid var(--ink);
   font-size: 0.68rem;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.runtime-state.chaos-changed {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  box-shadow: 3px 3px 0 var(--accent);
 }
 
 .status-dot {
@@ -730,6 +740,10 @@ button:disabled {
   color: var(--accent);
 }
 
+.debug-status[data-state="playing"] {
+  color: var(--accent);
+}
+
 .debug-status[data-state="finished"] {
   color: var(--success);
 }
@@ -745,6 +759,9 @@ button:disabled {
 }
 
 .debug-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   min-height: 1.9rem;
   padding: 0.25rem 0.55rem;
   border: 1px solid var(--ink);
@@ -753,8 +770,49 @@ button:disabled {
   font-weight: 700;
 }
 
+.control-icon {
+  width: 1.1em;
+  font-family:
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
+    "Noto Color Emoji",
+    sans-serif;
+  font-variant-emoji: emoji;
+  line-height: 1;
+  text-align: center;
+}
+
+@supports not (font-variant-emoji: emoji) {
+  .control-icon {
+    display: none;
+  }
+}
+
 .debug-controls button:hover:not(:disabled) {
   background: var(--surface-hover);
+}
+
+.playback-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.9rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.playback-speed[hidden] {
+  display: none;
+}
+
+.playback-speed input {
+  width: 6rem;
+  accent-color: var(--accent);
+}
+
+.playback-speed output {
+  min-width: 2.4rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .output-section {
