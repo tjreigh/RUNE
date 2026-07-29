@@ -129,4 +129,110 @@ if response.get("ok") is not True or response.get("values") != [120]:
     raise SystemExit(f"recursive function evaluation failed: {response}")
 PY
 
+echo "Evaluating scoped chaos ..."
+run_curl \
+    -H 'content-type: application/json' \
+    -d '{"source":"@chaos 2\nchaos 500\nnot 2\nend chaos\nnot 2"}' \
+    "$BASE_URL/evaluate" > "$TMP_DIR/scoped-chaos.json"
+
+"$PYTHON_BIN" - \
+    "$TMP_DIR/scoped-chaos.json" \
+    "$TMP_DIR/debug-request.json" \
+    "$TMP_DIR/session-probe-request.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response_file:
+    response = json.load(response_file)
+
+if response.get("ok") is not True or response.get("values") != [1, 0]:
+    raise SystemExit(f"scoped chaos evaluation failed: {response}")
+if response.get("state") != {"chaos_threshold": 2}:
+    raise SystemExit(f"scoped chaos did not restore state: {response}")
+session_id = response.get("session_id")
+if not isinstance(session_id, str) or not session_id:
+    raise SystemExit(f"scoped chaos response has no session ID: {response}")
+
+with open(sys.argv[2], "w", encoding="utf-8") as request_file:
+    json.dump(
+        {
+            "source": (
+                "chaos 500\n"
+                "preview = 9\n"
+                "not 2\n"
+                "end chaos\n"
+                "not 2"
+            ),
+            "session_id": session_id,
+        },
+        request_file,
+    )
+with open(sys.argv[3], "w", encoding="utf-8") as request_file:
+    json.dump({"source": "not 2", "session_id": session_id}, request_file)
+PY
+
+echo "Recording a non-committing debug trace ..."
+run_curl \
+    -H 'content-type: application/json' \
+    --data-binary "@$TMP_DIR/debug-request.json" \
+    "$BASE_URL/debug" > "$TMP_DIR/debug.json"
+
+"$PYTHON_BIN" - "$TMP_DIR/scoped-chaos.json" "$TMP_DIR/debug.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response_file:
+    evaluation = json.load(response_file)
+with open(sys.argv[2], encoding="utf-8") as response_file:
+    debug = json.load(response_file)
+
+if debug.get("ok") is not True or debug.get("artifact_available") is not True:
+    raise SystemExit(f"debug trace failed: {debug}")
+if debug.get("diagnostics") != []:
+    raise SystemExit(f"debug trace returned diagnostics: {debug}")
+if debug.get("session_id") != evaluation.get("session_id"):
+    raise SystemExit(f"debug trace changed sessions: {debug}")
+if debug.get("base_state") != {"chaos_threshold": 2}:
+    raise SystemExit(f"debug trace used the wrong base state: {debug}")
+frames = debug.get("frames")
+if not isinstance(frames, list) or not frames:
+    raise SystemExit(f"debug trace has no frames: {debug}")
+if frames[-1].get("status") != "completed":
+    raise SystemExit(f"debug trace did not complete: {debug}")
+thresholds = {
+    change["after"]
+    for frame in frames
+    if isinstance(frame.get("changes"), dict)
+    if isinstance(
+        change := frame["changes"].get("chaos_threshold"),
+        dict,
+    )
+}
+if not {2, 500}.issubset(thresholds):
+    raise SystemExit(f"debug trace omitted chaos transitions: {debug}")
+PY
+
+echo "Confirming debug did not commit session state ..."
+run_curl \
+    -H 'content-type: application/json' \
+    --data-binary "@$TMP_DIR/session-probe-request.json" \
+    "$BASE_URL/evaluate" > "$TMP_DIR/session-probe.json"
+
+"$PYTHON_BIN" - "$TMP_DIR/scoped-chaos.json" "$TMP_DIR/session-probe.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response_file:
+    evaluation = json.load(response_file)
+with open(sys.argv[2], encoding="utf-8") as response_file:
+    probe = json.load(response_file)
+
+if probe.get("ok") is not True or probe.get("values") != [0]:
+    raise SystemExit(f"post-debug session probe failed: {probe}")
+if probe.get("session_id") != evaluation.get("session_id"):
+    raise SystemExit(f"post-debug session probe changed sessions: {probe}")
+if probe.get("state") != {"chaos_threshold": 2}:
+    raise SystemExit(f"debug committed working state: {probe}")
+PY
+
 echo "RUNE smoke test passed: $BASE_URL"

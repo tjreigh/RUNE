@@ -3,7 +3,7 @@
 RUNE is pre-1.0. Minor releases may change the language; breaking changes get
 migration notes here.
 
-## v0.9.0 — Unreleased
+## v0.9.0 — 2026-07-28
 
 Added:
 

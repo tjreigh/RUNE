@@ -190,7 +190,7 @@ def test_http_test_client_dependency_is_not_in_production_extra():
     )
 
 
-def test_deployment_smoke_supports_unix_socket_and_checks_functions():
+def test_deployment_smoke_checks_functions_scoped_chaos_and_debug():
     smoke_test = _read("scripts/deploy-smoke-test.sh")
 
     assert 'curl $CURL_FLAGS --unix-socket "$CURL_SOCKET"' in smoke_test
@@ -205,6 +205,13 @@ def test_deployment_smoke_supports_unix_socket_and_checks_functions():
     assert 'diagnostics[0].get("kind") != "parse"' in smoke_test
     assert "function factorial(n)" in smoke_test
     assert 'response.get("values") != [120]' in smoke_test
+    assert "chaos 500" in smoke_test
+    assert "end chaos" in smoke_test
+    assert 'response.get("values") != [1, 0]' in smoke_test
+    assert '"$BASE_URL/debug"' in smoke_test
+    assert 'debug.get("artifact_available") is not True' in smoke_test
+    assert 'frames[-1].get("status") != "completed"' in smoke_test
+    assert "debug committed working state" in smoke_test
 
 
 def test_setup_node_version_check_uses_a_numeric_exit_code():
