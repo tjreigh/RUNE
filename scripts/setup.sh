@@ -35,7 +35,7 @@ if ! command -v node >/dev/null 2>&1 || ! command -v yarn >/dev/null 2>&1; then
     echo "Node.js and Yarn are required to build the web frontend." >&2
     exit 1
 fi
-if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22)'; then
+if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
     echo "Node.js 22 or newer is required to build the web frontend." >&2
     exit 1
 fi

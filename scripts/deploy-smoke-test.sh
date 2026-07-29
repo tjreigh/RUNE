@@ -61,7 +61,7 @@ run_curl "$BASE_URL/" > /dev/null
 
 echo "Checking static assets ..."
 run_curl "$BASE_URL/static/style.css" > /dev/null
-run_curl "$BASE_URL/static/app.js" > /dev/null
+run_curl "$BASE_URL/static/build/app.js" > /dev/null
 
 echo "Checking compile-only validation ..."
 run_curl \

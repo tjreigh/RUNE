@@ -163,11 +163,20 @@ def test_deployment_smoke_supports_unix_socket_and_checks_functions():
     assert 'while [ ! -S "$CURL_SOCKET" ]' in smoke_test
     assert '"$attempt" -ge 30' in smoke_test
     assert 'run_curl "$BASE_URL/" > /dev/null' in smoke_test
+    assert 'run_curl "$BASE_URL/static/style.css" > /dev/null' in smoke_test
+    assert 'run_curl "$BASE_URL/static/build/app.js" > /dev/null' in smoke_test
+    assert '"$BASE_URL/static/app.js"' not in smoke_test
     assert "grep -q" not in smoke_test
     assert '"$BASE_URL/validate"' in smoke_test
     assert 'diagnostics[0].get("kind") != "parse"' in smoke_test
     assert "function factorial(n)" in smoke_test
     assert 'response.get("values") != [120]' in smoke_test
+
+
+def test_setup_node_version_check_uses_a_numeric_exit_code():
+    setup = _read("scripts/setup.sh")
+
+    assert "< 22 ? 1 : 0" in setup
 
 
 def test_status_never_defaults_to_the_target_virtualenv():
